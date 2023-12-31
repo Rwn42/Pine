@@ -45,6 +45,7 @@ pub fn main() !void {
     var l = lexing.Lexer.init(file_buffer, cli_options.input_file, &sm) orelse return;
     var p = parsing.Parser.init(&l, allocator) orelse return;
     const exp = p.parse() orelse return;
+    defer p.deinit();
     std.debug.print("{s} \n", .{exp});
 }
 

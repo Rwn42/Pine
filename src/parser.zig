@@ -7,7 +7,7 @@ const AST = @import("ast.zig");
 
 //TODO: Implement unary operator parsing
 //TODO: code cleanup
-//TODO: fix the node memory leaking
+//TODO: support parenthesis
 
 pub const Parser = struct {
     const Self = @This();
@@ -15,12 +15,12 @@ pub const Parser = struct {
     lexer: *Lexer,
     token: Token,
     peek_token: Token,
-    node_allocator: std.mem.Allocator,
+    node_arena: std.heap.ArenaAllocator,
 
     pub fn init(l: *Lexer, allocator: std.mem.Allocator) ?Self {
         return .{
             .lexer = l,
-            .node_allocator = allocator,
+            .node_arena = std.heap.ArenaAllocator.init(allocator),
             .token = l.next() orelse return null,
             .peek_token = l.next() orelse return null,
         };
@@ -50,16 +50,19 @@ pub const Parser = struct {
             self.adv() orelse return false;
         }
     }
+
+    pub fn deinit(self: *Self) void {
+        self.node_arena.deinit();
+    }
 };
 
 //expression parser implements precedence climbing
 const ExpressionParser = struct {
-    const max_precedence = 2;
-
     fn precedence(typ: TokenType) u8 {
         return switch (typ) {
             .Plus, .Dash => 1,
             .Asterisk, .SlashForward => 2,
+            .Hat, .Ampersand => 3,
             else => {
                 std.log.info("{any}", .{typ});
                 @panic("COMPILER ERROR: precedence not defined");
@@ -67,9 +70,16 @@ const ExpressionParser = struct {
         };
     }
 
-    fn is_operator(typ: TokenType) bool {
+    fn is_bin_op(typ: TokenType) bool {
         return switch (typ) {
             .Plus, .Dash, .Asterisk, .SlashForward => true,
+            else => false,
+        };
+    }
+
+    fn is_un_op(typ: TokenType) bool {
+        return switch (typ) {
+            .Hat, .Ampersand, .ExclamationMark => true,
             else => false,
         };
     }
@@ -96,16 +106,16 @@ const ExpressionParser = struct {
 
     fn parse_precedence(p: *Parser, lhs: AST.Expression, min_precedence: u8) ?AST.Expression {
         var result: AST.Expression = lhs;
-        while (p.peek_token.tag != .Semicolon and is_operator(p.peek_token.tag) and precedence(p.peek_token.tag) >= min_precedence) {
+        while (p.peek_token.tag != .Semicolon and is_bin_op(p.peek_token.tag) and precedence(p.peek_token.tag) >= min_precedence) {
             const op = p.peek_token;
             p.adv() orelse return null;
             p.adv() orelse return null;
             var rhs = parse_primary(p) orelse return null;
-            while (is_operator(p.peek_token.tag) and precedence(p.peek_token.tag) > precedence(op.tag)) {
+            while (is_bin_op(p.peek_token.tag) and precedence(p.peek_token.tag) > precedence(op.tag)) {
                 rhs = parse_precedence(p, rhs, precedence(op.tag) + 1) orelse return null;
                 p.adv() orelse return null;
             }
-            var resultNode = p.node_allocator.create(AST.BinaryExpression) catch return null;
+            var resultNode = p.node_arena.allocator().create(AST.BinaryExpression) catch return null;
             resultNode.lhs = result;
             resultNode.rhs = rhs;
             resultNode.op = op;
