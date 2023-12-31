@@ -82,10 +82,10 @@ pub const Lexer = struct {
             '.' => .Dot,
             '*' => .Asterisk,
             '+' => .Plus,
-            '=' => self.lex_followed_by_equal(.DoubleEqual, .Equal),
-            '>' => self.lex_followed_by_equal(.GreaterThanEqual, .GreaterThan),
-            '<' => self.lex_followed_by_equal(.LessThanEqual, .LessThan),
-            '!' => self.lex_followed_by_equal(.NotEqual, .ExclamationMark),
+            '=' => self.lex_complex_operator(.DoubleEqual, .Equal),
+            '>' => self.lex_complex_operator(.GreaterThanEqual, .GreaterThan),
+            '<' => self.lex_complex_operator(.LessThanEqual, .LessThan),
+            '!' => self.lex_complex_operator(.NotEqual, .ExclamationMark),
             '-' => blk: {
                 const c = self.peek() orelse break :blk .Dash;
                 if (std.ascii.isDigit(c)) break :blk self.lex_number() catch return null;
@@ -129,9 +129,8 @@ pub const Lexer = struct {
         return cwt;
     }
 
-    // TODO: name this better
     // this function is for any token of the following format [something]= such as >= <= != +=,
-    fn lex_followed_by_equal(self: *Self, true_case: TokenType, false_case: TokenType) TokenType {
+    fn lex_complex_operator(self: *Self, true_case: TokenType, false_case: TokenType) TokenType {
         const next_char = self.peek() orelse return false_case;
         if (next_char == '=') {
             self.adv();

@@ -18,18 +18,31 @@ pub const Location = struct {
 // identifiers and string literals mostly
 pub const StringManager = struct {
     arena: std.heap.ArenaAllocator,
+    exists_table: std.StringHashMap([]u8),
 
     pub fn init(allocator: std.mem.Allocator) StringManager {
-        return .{ .arena = std.heap.ArenaAllocator.init(allocator) };
-    }
-
-    pub fn alloc(s: *StringManager, string: []u8) []u8 {
-        return s.arena.allocator().dupe(u8, string) catch {
-            @panic("COMPILER ERROR: String manager allocation failed [out of memory].");
+        return .{
+            .arena = std.heap.ArenaAllocator.init(allocator),
+            .exists_table = std.StringHashMap([]u8).init(allocator),
         };
     }
 
+    pub fn alloc(s: *StringManager, string: []u8) []u8 {
+        if (s.exists_table.get(string)) |ptr| return ptr; //string is already in the map
+
+        var new = s.arena.allocator().dupe(u8, string) catch {
+            @panic("COMPILER ERROR: String manager allocation failed [out of memory].");
+        };
+
+        s.exists_table.put(string, new) catch {
+            @panic("COMPILER ERROR: String manager map allocation failed");
+        };
+
+        return new;
+    }
+
     pub fn destroy(s: *StringManager) void {
+        s.exists_table.deinit();
         s.arena.deinit();
     }
 };

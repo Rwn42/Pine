@@ -5,21 +5,28 @@ const Token = @import("token.zig").Token;
 const TokenType = @import("token.zig").TokenType;
 const StringManager = @import("common.zig").StringManager;
 
+const MAX_FILE_BYTES = 1024 * 1024;
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
+    defer _ = gpa.deinit();
 
-    defer {
-        // _ = gpa.detectLeaks();
-        _ = gpa.deinit();
-    }
+    var args = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, args);
 
-    const filepath = "test.os";
-
-    const file_buffer = std.fs.cwd().readFileAlloc(allocator, filepath, 1024 * 1024) catch |err| {
+    const cli_options = CLIOptions.create(args) catch |err| {
         switch (err) {
-            error.FileTooBig => std.log.err("File {s} is to big try splitting your program into more files.", .{filepath}),
-            else => std.log.err("File {s} was not found.", .{filepath}),
+            CLIOptions.CLIError.NoInput => std.log.err("No input file provided", .{}),
+            CLIOptions.CLIError.NoOutput => std.log.err("No output file provided after -o", .{}),
+        }
+        return;
+    };
+
+    const file_buffer = std.fs.cwd().readFileAlloc(allocator, cli_options.input_file, MAX_FILE_BYTES) catch |err| {
+        switch (err) {
+            error.FileTooBig => std.log.err("File {s} is to big try splitting your program into more files.", .{cli_options.input_file}),
+            else => std.log.err("File {s} was not found.", .{cli_options.input_file}),
         }
         return;
     };
@@ -27,21 +34,49 @@ pub fn main() !void {
     defer allocator.free(file_buffer);
 
     if (file_buffer.len == 0) {
-        std.log.err("File {s} was found but is empty", .{filepath});
+        std.log.err("File {s} was found but is empty", .{cli_options.input_file});
         return;
     }
 
     var sm = StringManager.init(allocator);
     defer sm.destroy();
 
-    var l = lexing.Lexer.init(file_buffer, filepath, &sm) orelse return;
-    var t = l.next() orelse return;
-    std.debug.print("\n", .{});
-    while (t.tag != .EOF) : (t = l.next() orelse return) {
-        std.debug.print("{s} ", .{t});
-        switch (t.tag) {
-            //.Identifier, .String => |val| std.debug.print("found text {d} \n", .{}),
-            else => std.debug.print("\n", .{}),
-        }
-    }
+    var l = lexing.Lexer.init(file_buffer, cli_options.input_file, &sm) orelse return;
+    _ = l;
 }
+
+//wanted to use argIterator here but i couldnt get it to work
+const CLIOptions = struct {
+    input_file: []const u8,
+    output_file: ?([]const u8),
+    pos: usize,
+
+    pub const CLIError = error{
+        NoInput,
+        NoOutput,
+    };
+
+    pub fn create(args: [][]u8) !CLIOptions {
+        var opt = CLIOptions{
+            .input_file = undefined,
+            .output_file = null,
+            .pos = 0,
+        };
+
+        opt.pos += 1; //skip program name
+
+        if (opt.pos >= args.len) return CLIError.NoInput;
+        opt.input_file = args[opt.pos];
+        opt.pos += 1;
+
+        while (opt.pos <= args.len - 1) : (opt.pos += 1) {
+            if (std.mem.eql(u8, "-o", args[opt.pos])) {
+                opt.pos += 1;
+                if (opt.pos >= args.len) return CLIError.NoOutput;
+                opt.output_file = args[opt.pos];
+            }
+        }
+
+        return opt;
+    }
+};
