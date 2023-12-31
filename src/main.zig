@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const lexing = @import("lexer.zig");
+const parsing = @import("parser.zig");
 const Token = @import("token.zig").Token;
 const TokenType = @import("token.zig").TokenType;
 const StringManager = @import("common.zig").StringManager;
@@ -42,7 +43,9 @@ pub fn main() !void {
     defer sm.destroy();
 
     var l = lexing.Lexer.init(file_buffer, cli_options.input_file, &sm) orelse return;
-    _ = l;
+    var p = parsing.Parser.init(&l, allocator) orelse return;
+    const exp = p.parse() orelse return;
+    std.debug.print("{s} \n", .{exp});
 }
 
 //wanted to use argIterator here but i couldnt get it to work
