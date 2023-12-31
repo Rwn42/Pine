@@ -95,7 +95,7 @@ pub const Lexer = struct {
             'A'...'Z', 'a'...'z' => blk: {
                 const start_idx = self.pos;
                 self.adv_while(is_identifier);
-                const text = self.contents[start_idx .. self.pos + 1];
+                var text = self.contents[start_idx .. self.pos + 1];
                 break :blk TokenType.Keywords.get(text) orelse .{ .Identifier = self.sm.alloc(text) };
             },
             '/' => blk: {

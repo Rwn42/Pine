@@ -17,17 +17,15 @@ pub const Location = struct {
 // contains all of the strings we need to keep around for the duration of the program
 // identifiers and string literals mostly
 pub const StringManager = struct {
-    allocator: std.mem.Allocator,
     arena: std.heap.ArenaAllocator,
 
     pub fn init(allocator: std.mem.Allocator) StringManager {
-        var arena = std.heap.ArenaAllocator.init(allocator);
-        return .{ .allocator = arena.allocator(), .arena = arena };
+        return .{ .arena = std.heap.ArenaAllocator.init(allocator) };
     }
 
-    pub fn alloc(s: *StringManager, string: []const u8) []u8 {
-        return s.allocator.dupe(u8, string) catch {
-            @panic("COMPILER ERROR: String manager allocation failed.");
+    pub fn alloc(s: *StringManager, string: []u8) []u8 {
+        return s.arena.allocator().dupe(u8, string) catch {
+            @panic("COMPILER ERROR: String manager allocation failed [out of memory].");
         };
     }
 

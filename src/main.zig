@@ -8,8 +8,9 @@ const StringManager = @import("common.zig").StringManager;
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
+
     defer {
-        _ = gpa.detectLeaks();
+        // _ = gpa.detectLeaks();
         _ = gpa.deinit();
     }
 
@@ -23,12 +24,12 @@ pub fn main() !void {
         return;
     };
 
+    defer allocator.free(file_buffer);
+
     if (file_buffer.len == 0) {
-        allocator.free(file_buffer);
         std.log.err("File {s} was found but is empty", .{filepath});
         return;
     }
-    defer allocator.free(file_buffer);
 
     var sm = StringManager.init(allocator);
     defer sm.destroy();
@@ -37,6 +38,10 @@ pub fn main() !void {
     var t = l.next() orelse return;
     std.debug.print("\n", .{});
     while (t.tag != .EOF) : (t = l.next() orelse return) {
-        std.debug.print("{s} \n", .{t});
+        std.debug.print("{s} ", .{t});
+        switch (t.tag) {
+            //.Identifier, .String => |val| std.debug.print("found text {d} \n", .{}),
+            else => std.debug.print("\n", .{}),
+        }
     }
 }

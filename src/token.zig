@@ -5,8 +5,8 @@ const Location = @import("common.zig").Location;
 
 pub const TokenType = union(enum) {
     //tokens with data
-    Identifier: []const u8,
-    String: []const u8,
+    Identifier: []u8,
+    String: []u8,
     Integer: i64,
     Float: f64,
 
