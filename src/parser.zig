@@ -6,7 +6,6 @@ const Token = @import("token.zig").Token;
 const TokenType = @import("token.zig").TokenType;
 const AST = @import("ast.zig");
 
-//TODO: function calls
 //TODO: accesses like array.0 or record.x
 
 const Precedence = enum {
@@ -16,7 +15,6 @@ const Precedence = enum {
     Sum,
     Product,
     Prefix,
-    Call,
 
     fn from(typ: TokenType) usize {
         const prec: Precedence = switch (typ) {
@@ -190,42 +188,60 @@ const ExpressionParser = struct {
         expr.name = p.token;
         expr.args_list = null;
 
-        try p.adv(); //consume lparen
-        try p.adv();
+        try p.adv(); //lparen cur token
+        try p.adv(); //first argument / rparen is cur token
 
-        var prev_ptr: *AST.ExprList = undefined;
-
-        if (p.token.tag != .Rparen) {
-            const arg = try parse_precedence(p, .Lowest);
-            const new_node = p.new_node(AST.ExprList);
-            new_node.next = null;
-            new_node.expr = arg;
-            expr.args_list = new_node;
-            prev_ptr = new_node;
-            try p.expect(&[_]TokenType{ .Comma, .Rparen });
-        } else {
+        if (p.token.tag == .Rparen) {
             return .{ .FuncCall = expr };
         }
 
-        if (p.peek_token.tag == .Comma) {
-            try p.adv();
-        }
-
-        while (p.peek_token.tag != .Rparen) {
-            try p.adv();
-            const arg = try parse_precedence(p, .Lowest);
-            const new_node = p.new_node(AST.ExprList);
-            new_node.next = null;
-            new_node.expr = arg;
-            prev_ptr.next = new_node;
-            prev_ptr = new_node;
-            try p.expect(&[_]TokenType{ .Comma, .Rparen });
-            if (p.peek_token.tag == .Comma) try p.adv();
-        }
-
+        try parse_arg(p, &expr.args_list);
         try p.adv(); //consume rparen
 
         return .{ .FuncCall = expr };
+        // if (p.token.tag != .Rparen) {
+        //     const arg = try parse_precedence(p, .Lowest);
+        //     const new_node = p.new_node(AST.ExprList);
+        //     new_node.next = null;
+        //     new_node.expr = arg;
+        //     expr.args_list = new_node;
+        //     prev_ptr = new_node;
+        //     try p.expect(&[_]TokenType{ .Comma, .Rparen });
+        // } else {
+        //     return .{ .FuncCall = expr };
+        // }
+
+        // if (p.peek_token.tag == .Comma) {
+        //     try p.adv();
+        // }
+
+        // while (p.peek_token.tag != .Rparen) {
+        //     try p.adv();
+        //     const arg = try parse_precedence(p, .Lowest);
+        //     const new_node = p.new_node(AST.ExprList);
+        //     new_node.next = null;
+        //     new_node.expr = arg;
+        //     prev_ptr.next = new_node;
+        //     prev_ptr = new_node;
+        //     try p.expect(&[_]TokenType{ .Comma, .Rparen });
+        //     if (p.peek_token.tag == .Comma) try p.adv();
+        // }
+    }
+
+    fn parse_arg(p: *ParserState, prev: *?*AST.ExprList) !void {
+        const arg = try parse_precedence(p, .Lowest);
+        const new_node = p.new_node(AST.ExprList);
+
+        new_node.next = null;
+        new_node.expr = arg;
+        prev.* = new_node;
+
+        if (p.peek_token.tag == .Rparen) return;
+
+        try p.expect(&[_]TokenType{.Comma});
+        try p.adv();
+        try p.adv();
+        return parse_arg(p, &new_node.next);
     }
 
     fn dummy_expression(p: *ParserState) AST.Expression {

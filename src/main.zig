@@ -6,6 +6,8 @@ const Token = @import("token.zig").Token;
 const TokenType = @import("token.zig").TokenType;
 const StringManager = @import("common.zig").StringManager;
 
+//TODO: Add more to CLI.
+
 const MAX_FILE_BYTES = 1024 * 1024;
 
 pub fn main() !void {
