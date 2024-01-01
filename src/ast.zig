@@ -6,12 +6,12 @@ const TokenType = @import("token.zig").TokenType;
 pub const Expression = union(enum) {
     BinaryExprNode: *BinaryExpression,
     UnaryExprNode: *UnaryExpression,
+    FuncCall: *FunctionCallExpression,
     LiteralInt: Token,
     LiteralFloat: Token,
     LiteralBool: Token,
     LiteralString: Token,
     IdentifierUsage: Token,
-    FuncCall: Token,
 
     pub fn format(self: Expression, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         switch (self) {
@@ -31,7 +31,20 @@ pub const Expression = union(enum) {
                 try expr.expr.format(fmt, options, writer);
                 try writer.print(" )", .{});
             },
-            else => @panic("Not Implemeneted"),
+            .FuncCall => |expr| {
+                try writer.print("{s} ( ", .{expr.name});
+                defer writer.print(")", .{}) catch {};
+                if (expr.args_list == null) return;
+                var node = expr.args_list.?;
+                while (true) {
+                    try writer.print("{s}, ", .{node.expr});
+                    if (node.next) |next| {
+                        node = next;
+                    } else {
+                        break;
+                    }
+                }
+            },
         }
     }
 };
@@ -45,4 +58,14 @@ pub const BinaryExpression = struct {
 pub const UnaryExpression = struct {
     op: Token,
     expr: Expression,
+};
+
+pub const FunctionCallExpression = struct {
+    name: Token,
+    args_list: ?*ExprList,
+};
+
+pub const ExprList = struct {
+    expr: Expression,
+    next: ?*ExprList,
 };
