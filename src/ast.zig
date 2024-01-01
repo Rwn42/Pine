@@ -3,6 +3,26 @@ const std = @import("std");
 const Token = @import("token.zig").Token;
 const TokenType = @import("token.zig").TokenType;
 
+//TODO: better naming scheme for union tag vs type
+
+pub const Declaration = union(enum) {
+    FuncDecl: *FunctionDeclaration,
+};
+
+pub const FunctionDeclaration = struct {
+    name_tk: Token,
+    return_type_tk: Token, //may be optional down the line
+    params: ?*ParamList, //head to a linked list
+    body: Expression,
+};
+
+//linked list node
+pub const ParamList = struct {
+    name_tk: Token,
+    type_tk: Token,
+    next: ?*ParamList,
+};
+
 pub const Expression = union(enum) {
     BinaryExprNode: *BinaryExpression,
     UnaryExprNode: *UnaryExpression,
@@ -32,7 +52,7 @@ pub const Expression = union(enum) {
                 try writer.print(" )", .{});
             },
             .FuncCall => |expr| {
-                try writer.print("{s} ( ", .{expr.name});
+                try writer.print("{s} ( ", .{expr.name_tk});
                 defer writer.print(")", .{}) catch {};
                 if (expr.args_list == null) return;
                 var node = expr.args_list.?;
@@ -61,10 +81,11 @@ pub const UnaryExpression = struct {
 };
 
 pub const FunctionCallExpression = struct {
-    name: Token,
-    args_list: ?*ExprList,
+    name_tk: Token,
+    args_list: ?*ExprList, //head node of a linked list
 };
 
+//linked list node
 pub const ExprList = struct {
     expr: Expression,
     next: ?*ExprList,

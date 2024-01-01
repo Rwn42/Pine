@@ -98,6 +98,7 @@ pub const Lexer = struct {
                 const c = self.peek() orelse break :blk .SlashForward;
                 if (c == '/') {
                     self.adv_while(is_comment_text);
+                    self.adv();
                     return self.next();
                 }
                 break :blk .SlashForward;

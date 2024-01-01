@@ -8,32 +8,6 @@ const AST = @import("ast.zig");
 
 //TODO: accesses like array.0 or record.x
 
-const Precedence = enum {
-    Lowest,
-    Equals,
-    LessGreater,
-    Sum,
-    Product,
-    Prefix,
-
-    fn from(typ: TokenType) usize {
-        const prec: Precedence = switch (typ) {
-            .DoubleEqual => .Equals,
-            .NotEqual => .Equals,
-            .LessThan => .LessGreater,
-            .GreaterThan => .LessGreater,
-            .LessThanEqual => .LessGreater,
-            .GreaterThanEqual => .LessGreater,
-            .Plus => .Sum,
-            .Dash => .Sum,
-            .Asterisk => .Product,
-            .SlashForward => .Product,
-            else => .Lowest,
-        };
-        return @intFromEnum(prec);
-    }
-};
-
 const ParseError = error{
     UnexpectedToken,
     LexerError,
@@ -59,8 +33,13 @@ pub const ParserState = struct {
         };
     }
 
-    pub fn parse(self: *Self) AST.Expression {
-        return ExpressionParser.parse(self);
+    pub fn parse(self: *Self) AST.Declaration {
+        const r = DeclarationParser.parse(self) catch {
+            @panic("declaration failed");
+        };
+        assert(self.token.tag == .EOF);
+
+        return r;
     }
 
     fn adv(self: *Self) !void {
@@ -77,6 +56,23 @@ pub const ParserState = struct {
         return ParseError.UnexpectedToken;
     }
 
+    //expects a sequence of tokens to follow in an exact order
+    fn expect_seq(self: *Self, expected: []const TokenType) ParseError!void {
+        for (expected) |expTag| {
+            if (@intFromEnum(self.peek_token.tag) != @intFromEnum(expTag)) {
+                std.log.err("Unexpected token {s} expected {any}", .{ self.peek_token, expTag });
+                return ParseError.UnexpectedToken;
+            }
+            try self.adv();
+        }
+    }
+
+    fn expect_cur(self: *Self, expected: TokenType) ParseError!void {
+        if (@intFromEnum(self.token.tag) == @intFromEnum(expected)) return;
+        std.log.err("Unexpected token {s}", .{self.token});
+        return ParseError.UnexpectedToken;
+    }
+
     fn new_node(self: *Self, comptime T: type) *T {
         return self.node_arena.allocator().create(T) catch {
             @panic("COMPILER ERROR: Could not allocate node!");
@@ -85,6 +81,105 @@ pub const ParserState = struct {
 
     pub fn deinit(self: *Self) void {
         self.node_arena.deinit();
+    }
+};
+
+const DeclarationParser = struct {
+    //
+    fn parse(p: *ParserState) !AST.Declaration {
+        try p.expect_cur(.{ .Identifier = "" });
+        const name_tk = p.token;
+        try p.expect_seq(&[_]TokenType{ .Colon, .Colon });
+        try p.adv();
+
+        switch (p.token.tag) {
+            .Fn => return try parse_func_decl(p, name_tk),
+            .Record => @panic("Not implemented"),
+            else => {
+                const start_tk = p.token;
+                const const_expr = ExpressionParser.parse_precedence(p, .Lowest) catch {
+                    std.log.err("Expected fn, record or constant declaration after `::` got {s}", .{start_tk});
+                    return ParseError.UnexpectedToken;
+                };
+                _ = const_expr;
+                @panic("constant delcaraitons not implemented");
+            },
+        }
+    }
+
+    fn parse_func_decl(p: *ParserState, name_tk: Token) !AST.Declaration {
+        var decl = p.new_node(AST.FunctionDeclaration);
+        decl.name_tk = name_tk;
+        decl.params = null;
+
+        try p.expect(&[_]TokenType{.Lparen});
+        try p.adv();
+        try p.adv();
+
+        if (p.token.tag != .Rparen) {
+            try parse_param_list(p, &decl.params);
+            try p.adv();
+        }
+        try p.adv(); //consume rparen
+
+        try p.expect_cur(.{ .Identifier = "" });
+        decl.return_type_tk = p.token;
+        try p.adv();
+        try p.expect_cur(.Lbrace);
+        try p.adv();
+
+        decl.body = ExpressionParser.parse(p);
+        try p.expect_cur(.Rbrace);
+        try p.adv();
+
+        return .{ .FuncDecl = decl };
+    }
+
+    fn parse_param_list(p: *ParserState, prev: *?*AST.ParamList) !void {
+        var param = p.new_node(AST.ParamList);
+        param.next = null;
+
+        param.name_tk = p.token;
+        try p.expect_cur(.{ .Identifier = "" });
+        try p.expect(&[_]TokenType{.Colon});
+        try p.adv();
+        try p.adv();
+        try p.expect_cur(.{ .Identifier = "" });
+        param.type_tk = p.token;
+
+        prev.* = param;
+        if (p.peek_token.tag == .Rparen) return;
+
+        try p.expect(&[_]TokenType{.Comma});
+        try p.adv();
+        try p.adv();
+        return parse_param_list(p, &param.next);
+    }
+};
+
+const Precedence = enum {
+    Lowest,
+    Equals,
+    LessGreater,
+    Sum,
+    Product,
+    Prefix,
+
+    fn from(typ: TokenType) usize {
+        const prec: Precedence = switch (typ) {
+            .DoubleEqual => .Equals,
+            .NotEqual => .Equals,
+            .LessThan => .LessGreater,
+            .GreaterThan => .LessGreater,
+            .LessThanEqual => .LessGreater,
+            .GreaterThanEqual => .LessGreater,
+            .Plus => .Sum,
+            .Dash => .Sum,
+            .Asterisk => .Product,
+            .SlashForward => .Product,
+            else => .Lowest,
+        };
+        return @intFromEnum(prec);
     }
 };
 
@@ -172,6 +267,7 @@ const ExpressionParser = struct {
         return .{ .BinaryExprNode = expr };
     }
 
+    //group expressions are those in parenthesis
     fn parse_grouped(p: *ParserState) !AST.Expression {
         try p.adv(); //consume lparen
 
@@ -185,7 +281,7 @@ const ExpressionParser = struct {
 
     fn parse_call(p: *ParserState) !AST.Expression {
         var expr = p.new_node(AST.FunctionCallExpression);
-        expr.name = p.token;
+        expr.name_tk = p.token;
         expr.args_list = null;
 
         try p.adv(); //lparen cur token
@@ -199,33 +295,6 @@ const ExpressionParser = struct {
         try p.adv(); //consume rparen
 
         return .{ .FuncCall = expr };
-        // if (p.token.tag != .Rparen) {
-        //     const arg = try parse_precedence(p, .Lowest);
-        //     const new_node = p.new_node(AST.ExprList);
-        //     new_node.next = null;
-        //     new_node.expr = arg;
-        //     expr.args_list = new_node;
-        //     prev_ptr = new_node;
-        //     try p.expect(&[_]TokenType{ .Comma, .Rparen });
-        // } else {
-        //     return .{ .FuncCall = expr };
-        // }
-
-        // if (p.peek_token.tag == .Comma) {
-        //     try p.adv();
-        // }
-
-        // while (p.peek_token.tag != .Rparen) {
-        //     try p.adv();
-        //     const arg = try parse_precedence(p, .Lowest);
-        //     const new_node = p.new_node(AST.ExprList);
-        //     new_node.next = null;
-        //     new_node.expr = arg;
-        //     prev_ptr.next = new_node;
-        //     prev_ptr = new_node;
-        //     try p.expect(&[_]TokenType{ .Comma, .Rparen });
-        //     if (p.peek_token.tag == .Comma) try p.adv();
-        // }
     }
 
     fn parse_arg(p: *ParserState, prev: *?*AST.ExprList) !void {
