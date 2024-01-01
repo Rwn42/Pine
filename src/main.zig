@@ -15,6 +15,10 @@ pub fn main() !void {
     const allocator = gpa.allocator();
     defer _ = gpa.deinit();
 
+    const stdout_file = std.io.getStdOut().writer();
+    var bw = std.io.bufferedWriter(stdout_file);
+    const stdout = bw.writer();
+
     var args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
 
@@ -48,7 +52,9 @@ pub fn main() !void {
     var p = parsing.ParserState.init(&l, allocator) orelse return;
     const exp = p.parse();
     defer p.deinit();
-    std.debug.print("{any} \n", .{exp});
+
+    try stdout.print("{any} \n", .{exp});
+    try bw.flush();
 }
 
 //wanted to use argIterator here but i couldnt get it to work

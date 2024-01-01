@@ -7,6 +7,8 @@ const TokenType = @import("token.zig").TokenType;
 const AST = @import("ast.zig");
 
 //TODO: accesses like array.0 or record.x
+//TODO: make expects easier to use
+//TODO: rethink error handling method
 
 const ParseError = error{
     UnexpectedToken,
@@ -66,6 +68,8 @@ pub const ParserState = struct {
             try self.adv();
         }
     }
+
+    //fn expect2
 
     fn expect_cur(self: *Self, expected: TokenType) ParseError!void {
         if (@intFromEnum(self.token.tag) == @intFromEnum(expected)) return;
