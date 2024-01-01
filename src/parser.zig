@@ -1,15 +1,51 @@
 const std = @import("std");
+const assert = @import("std").debug.assert;
 
 const Lexer = @import("lexer.zig").Lexer;
 const Token = @import("token.zig").Token;
 const TokenType = @import("token.zig").TokenType;
 const AST = @import("ast.zig");
 
-//TODO: Implement unary operator parsing
-//TODO: code cleanup
 //TODO: support parenthesis
+//TODO: Decide on how errors are handled
+//TODO: get rid of all the int to enums
+//TODO: Move '-' from lexing stage to be a prefix op instead
+//TODO: function calls
+//TODO: accesses like array.0 or record.x
 
-pub const Parser = struct {
+const Precedence = enum {
+    Lowest,
+    Equals,
+    LessGreater,
+    Sum,
+    Product,
+    Prefix,
+    Call,
+
+    fn from(typ: TokenType) usize {
+        const prec: Precedence = switch (typ) {
+            .DoubleEqual => .Equals,
+            .NotEqual => .Equals,
+            .LessThan => .LessGreater,
+            .GreaterThan => .LessGreater,
+            .LessThanEqual => .LessGreater,
+            .GreaterThanEqual => .LessGreater,
+            .Plus => .Sum,
+            .Dash => .Sum,
+            .Asterisk => .Product,
+            .SlashForward => .Product,
+            else => .Lowest,
+        };
+        return @intFromEnum(prec);
+    }
+};
+
+const ParseError = error{
+    UnexpectedToken,
+    LexerError,
+};
+
+pub const ParserState = struct {
     const Self = @This();
 
     lexer: *Lexer,
@@ -26,8 +62,15 @@ pub const Parser = struct {
         };
     }
 
-    pub fn parse(self: *Self) ?AST.Expression {
-        return ExpressionParser.parse(self);
+    pub fn parse(self: *Self) AST.Expression {
+        const expr = ExpressionParser.parse(self) catch {
+            @panic("parse erro");
+        };
+        _ = self.expect(&[_]TokenType{.Semicolon});
+        self.adv().?;
+        self.adv().?;
+
+        return expr;
     }
 
     fn adv(self: *Self) ?void {
@@ -36,19 +79,18 @@ pub const Parser = struct {
     }
 
     //performs expect on peek_token
-    fn expect(self: *Self, expected: []TokenType) bool {
+    fn expect(self: *Self, expected: []const TokenType) bool {
         for (expected) |expTag| {
-            if (self.peek_token.tag == expTag) return true;
+            if (@intFromEnum(self.peek_token.tag) == @intFromEnum(expTag)) return true;
         }
+        std.log.err("Unexpected token {s}", .{self.peek_token});
         return false;
     }
 
-    //expects a sequence of tokens in order will advance the lexer
-    fn expect_sequence(self: *Self, expected_seq: []TokenType) bool {
-        for (expected_seq) |expTag| {
-            if (self.peek_token.tag != expTag) return false;
-            self.adv() orelse return false;
-        }
+    fn new_node(self: *Self, comptime T: type) *T {
+        return self.node_arena.allocator().create(T) catch {
+            @panic("COMPILER ERROR: Could not allocate node!");
+        };
     }
 
     pub fn deinit(self: *Self) void {
@@ -56,71 +98,58 @@ pub const Parser = struct {
     }
 };
 
-//expression parser implements precedence climbing
+// Expression parsing based off the building an interpreter in go book.
 const ExpressionParser = struct {
-    fn precedence(typ: TokenType) u8 {
-        return switch (typ) {
-            .Plus, .Dash => 1,
-            .Asterisk, .SlashForward => 2,
-            .Hat, .Ampersand => 3,
-            else => {
-                std.log.info("{any}", .{typ});
-                @panic("COMPILER ERROR: precedence not defined");
-            },
-        };
+    fn parse(p: *ParserState) !AST.Expression {
+        return parse_precedence(p, .Lowest);
     }
 
-    fn is_bin_op(typ: TokenType) bool {
+    fn is_infix_op(typ: TokenType) bool {
         return switch (typ) {
             .Plus, .Dash, .Asterisk, .SlashForward => true,
             else => false,
         };
     }
 
-    fn is_un_op(typ: TokenType) bool {
-        return switch (typ) {
-            .Hat, .Ampersand, .ExclamationMark => true,
-            else => false,
+    fn parse_precedence(p: *ParserState, prec: Precedence) ParseError!AST.Expression {
+        var expr: AST.Expression = switch (p.token.tag) {
+            .Identifier => .{ .IdentifierUsage = p.token },
+            .Integer => .{ .LiteralInt = p.token },
+            .Float => .{ .LiteralFloat = p.token },
+            .True, .False => .{ .LiteralBool = p.token },
+            .String => .{ .LiteralString = p.token },
+            .Hat, .ExclamationMark, .Ampersand => try parse_prefix(p),
+            else => @panic("expression business"),
         };
-    }
 
-    fn parse(parser: *Parser) ?AST.Expression {
-        const lhs = parse_primary(parser) orelse return null;
-        return parse_precedence(parser, lhs, 0);
-    }
+        while (p.peek_token.tag != .Semicolon and @intFromEnum(prec) < Precedence.from(p.peek_token.tag)) {
+            if (!is_infix_op(p.peek_token.tag)) return expr;
+            p.adv() orelse return ParseError.LexerError;
+            expr = try parse_infix(p, expr);
+        }
 
-    fn parse_primary(parser: *Parser) ?AST.Expression {
-        const expr: AST.Expression = switch (parser.token.tag) {
-            .Identifier => .{ .IdentifierUsage = parser.token }, //eventually will check for func call
-            .Integer => .{ .LiteralInt = parser.token },
-            .Float => .{ .LiteralFloat = parser.token },
-            .True, .False => .{ .LiteralBool = parser.token },
-            .String => .{ .LiteralString = parser.token },
-            else => {
-                std.log.err("Cannot start expression with {t}", .{parser.token});
-                return null;
-            },
-        };
         return expr;
     }
 
-    fn parse_precedence(p: *Parser, lhs: AST.Expression, min_precedence: u8) ?AST.Expression {
-        var result: AST.Expression = lhs;
-        while (p.peek_token.tag != .Semicolon and is_bin_op(p.peek_token.tag) and precedence(p.peek_token.tag) >= min_precedence) {
-            const op = p.peek_token;
-            p.adv() orelse return null;
-            p.adv() orelse return null;
-            var rhs = parse_primary(p) orelse return null;
-            while (is_bin_op(p.peek_token.tag) and precedence(p.peek_token.tag) > precedence(op.tag)) {
-                rhs = parse_precedence(p, rhs, precedence(op.tag) + 1) orelse return null;
-                p.adv() orelse return null;
-            }
-            var resultNode = p.node_arena.allocator().create(AST.BinaryExpression) catch return null;
-            resultNode.lhs = result;
-            resultNode.rhs = rhs;
-            resultNode.op = op;
-            result = .{ .BinaryExprNode = resultNode };
-        }
-        return result;
+    fn parse_prefix(p: *ParserState) !AST.Expression {
+        var expr = p.new_node(AST.UnaryExpression);
+        expr.op = p.token;
+
+        p.adv() orelse return ParseError.LexerError;
+
+        expr.expr = try parse_precedence(p, .Prefix);
+        return .{ .UnaryExprNode = expr };
+    }
+
+    fn parse_infix(p: *ParserState, lhs: AST.Expression) !AST.Expression {
+        var expr = p.new_node(AST.BinaryExpression);
+        expr.lhs = lhs;
+        expr.op = p.token;
+
+        const prec = Precedence.from(p.token.tag);
+        p.adv() orelse return ParseError.LexerError;
+        expr.rhs = try parse_precedence(p, @enumFromInt(prec));
+
+        return .{ .BinaryExprNode = expr };
     }
 };

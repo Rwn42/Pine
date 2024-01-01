@@ -43,10 +43,10 @@ pub fn main() !void {
     defer sm.destroy();
 
     var l = lexing.Lexer.init(file_buffer, cli_options.input_file, &sm) orelse return;
-    var p = parsing.Parser.init(&l, allocator) orelse return;
-    const exp = p.parse() orelse return;
+    var p = parsing.ParserState.init(&l, allocator) orelse return;
+    const exp = p.parse();
     defer p.deinit();
-    std.debug.print("{s} \n", .{exp});
+    std.debug.print("{any} \n", .{exp});
 }
 
 //wanted to use argIterator here but i couldnt get it to work

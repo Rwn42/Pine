@@ -17,15 +17,19 @@ pub const Expression = union(enum) {
         switch (self) {
             .LiteralBool, .LiteralFloat, .LiteralString, .LiteralInt, .IdentifierUsage => |tk| try writer.print("{s}", .{tk}),
             .BinaryExprNode => |expr| {
-                try writer.print("\n-----------------\n", .{});
+                try writer.print("( ", .{});
                 try expr.lhs.format(fmt, options, writer);
-                try writer.print("\n {s} \n", .{expr.op.tagRepr.?});
+                try writer.print(" )", .{});
+                try writer.print(" {s} ", .{expr.op.tagRepr.?});
+                try writer.print("( ", .{});
                 try expr.rhs.format(fmt, options, writer);
-                try writer.print("\n-----------------\n", .{});
+                try writer.print(" )", .{});
             },
             .UnaryExprNode => |expr| {
-                try writer.print("{s}\n", .{expr.op.tagRepr.?});
+                try writer.print("{s}", .{expr.op.tagRepr.?});
+                try writer.print("( ", .{});
                 try expr.expr.format(fmt, options, writer);
+                try writer.print(" )", .{});
             },
             else => @panic("Not Implemeneted"),
         }
