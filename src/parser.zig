@@ -7,9 +7,7 @@ const TokenType = @import("token.zig").TokenType;
 const AST = @import("ast.zig");
 
 //TODO: accesses like array.0 or record.x
-//TODO: make expects easier to use
 //TODO: rethink error handling method
-//TODO: change to a ternary so error doesnt get printed (func call return type)
 
 const ParseError = error{
     UnexpectedToken,
@@ -124,7 +122,6 @@ const DeclarationParser = struct {
             try parse_param_list(p, &decl.params);
             try p.adv();
         }
-        try p.adv(); //consume rparen
 
         if (@intFromEnum(p.token.tag) == @intFromEnum(TokenType{ .Identifier = "" })) {
             decl.return_type_tk = p.token;
@@ -133,7 +130,7 @@ const DeclarationParser = struct {
 
         _ = try p.assert_token_is(.Lbrace);
 
-        decl.body = ExpressionParser.parse(p);
+        decl.body = try StatementParser.parse(p);
         _ = try p.assert_token_is(.Rbrace);
 
         return .{ .FuncDecl = decl };
@@ -154,6 +151,20 @@ const DeclarationParser = struct {
         _ = try p.assert_token_is(.Comma);
 
         return parse_param_list(p, &param.next);
+    }
+};
+
+const StatementParser = struct {
+    fn parse(p: *ParserState) !AST.Statement {
+        const tk = p.token;
+        try p.adv();
+        return switch (tk.tag) {
+            .Return => .{ .ReturnStatement = ExpressionParser.parse(p) },
+            else => {
+                std.log.err("No statement starts with {s}", .{p.token});
+                return ParseError.UnexpectedToken;
+            },
+        };
     }
 };
 

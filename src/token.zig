@@ -14,6 +14,7 @@ pub const TokenType = union(enum) {
     KEYWORD_COUNT_BEGIN, // used to assert that the keywords map is exhaustive
     Fn,
     Record,
+    Return,
     True,
     False,
     If,
@@ -64,6 +65,7 @@ pub const TokenType = union(enum) {
         .{ "else", .Else },
         .{ "for", .For },
         .{ "while", .While },
+        .{ "return", .Return },
     });
 
     pub const Repr = std.ComptimeStringMap([]const u8, .{

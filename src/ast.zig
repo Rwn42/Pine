@@ -13,7 +13,7 @@ pub const FunctionDeclaration = struct {
     name_tk: Token,
     return_type_tk: ?Token,
     params: ?*ParamList, //head to a linked list
-    body: Expression,
+    body: Statement,
 };
 
 //linked list node
@@ -21,6 +21,11 @@ pub const ParamList = struct {
     name_tk: Token,
     type_tk: Token,
     next: ?*ParamList,
+};
+
+pub const Statement = union(enum) {
+    ExpressionStatement: Expression,
+    ReturnStatement: Expression,
 };
 
 pub const Expression = union(enum) {
