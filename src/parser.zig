@@ -8,6 +8,7 @@ const AST = @import("ast.zig");
 
 //TODO: accesses like array.0 or record.x
 //TODO: rethink error handling method
+//TODO: allow expression statements
 
 const ParseError = error{
     UnexpectedToken,

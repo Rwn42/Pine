@@ -6,12 +6,9 @@ const StringManager = @import("common.zig").StringManager;
 const Token = @import("token.zig").Token;
 const TokenType = @import("token.zig").TokenType;
 
-//TODO: lex numbers of different bases / numbers like 1_000_000
-//TODO: rigorous tests
-
 const PredicateFn = fn (c: u8) bool;
 
-fn is_identifier(c: u8) bool {
+fn is_num_or_ident(c: u8) bool {
     return std.ascii.isAlphanumeric(c) or c == '_';
 }
 
@@ -87,13 +84,37 @@ pub const Lexer = struct {
             '<' => self.lex_complex_operator(.LessThanEqual, .LessThan),
             '!' => self.lex_complex_operator(.NotEqual, .ExclamationMark),
             '-' => .Dash,
-            '0'...'9' => self.lex_number() catch return null,
+            '1'...'9' => self.lex_number(10) catch return null,
             'A'...'Z', 'a'...'z' => blk: {
                 const start_idx = self.pos;
-                self.adv_while(is_identifier);
+                self.adv_while(is_num_or_ident);
                 var text = self.contents[start_idx .. self.pos + 1];
                 break :blk TokenType.Keywords.get(text) orelse .{ .Identifier = self.sm.alloc(text) };
             },
+            '0' => blk: {
+                const c = self.peek() orelse break :blk .{ .Integer = 0 };
+                if (std.ascii.isDigit(c)) break :blk self.lex_number(10) catch return null;
+                self.adv();
+                break :blk switch (c) {
+                    'x' => blk_inner: {
+                        self.adv();
+                        break :blk_inner self.lex_number(16) catch return null;
+                    },
+                    'b' => blk_inner: {
+                        self.adv();
+                        break :blk_inner self.lex_number(2) catch return null;
+                    },
+                    'o' => blk_inner: {
+                        self.adv();
+                        break :blk_inner self.lex_number(8) catch return null;
+                    },
+                    else => {
+                        std.log.err("0{c} is not a valid number for base 16, 2 or 8 us 0x, 0b, or 0o {s}", .{ c, self.loc });
+                        return null;
+                    },
+                };
+            },
+
             '/' => blk: {
                 const c = self.peek() orelse break :blk .SlashForward;
                 if (c == '/') {
@@ -136,17 +157,22 @@ pub const Lexer = struct {
         return false_case;
     }
 
-    fn lex_number(self: *Self) !TokenType {
+    fn lex_number(self: *Self, base: u8) !TokenType {
         const start_idx = self.pos;
-        self.adv_while(std.ascii.isDigit);
+        self.adv_while(is_num_or_ident);
         const whole_component = self.contents[start_idx .. self.pos + 1];
 
         if (self.peek() != '.') {
-            const n = std.fmt.parseInt(i64, whole_component, 10) catch |err| {
+            const n = std.fmt.parseInt(i64, whole_component, base) catch |err| {
                 std.log.err("Could not parse integer {s} {s}", .{ whole_component, self.loc });
                 return err;
             };
             return .{ .Integer = n };
+        }
+
+        if (base != 10) {
+            std.log.err("Floating point number can only be base 10 {s} {s}", .{ whole_component, self.loc });
+            return std.fmt.ParseFloatError.InvalidCharacter;
         }
 
         const whole_n = std.fmt.parseFloat(f64, whole_component) catch |err| {
