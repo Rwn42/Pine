@@ -11,7 +11,7 @@ pub const Declaration = union(enum) {
 
 pub const FunctionDeclaration = struct {
     name_tk: Token,
-    return_type_tk: Token, //may be optional down the line
+    return_type_tk: ?Token,
     params: ?*ParamList, //head to a linked list
     body: Expression,
 };

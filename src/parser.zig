@@ -9,6 +9,7 @@ const AST = @import("ast.zig");
 //TODO: accesses like array.0 or record.x
 //TODO: make expects easier to use
 //TODO: rethink error handling method
+//TODO: change to a ternary so error doesnt get printed (func call return type)
 
 const ParseError = error{
     UnexpectedToken,
@@ -49,32 +50,33 @@ pub const ParserState = struct {
         self.peek_token = self.lexer.next() orelse return ParseError.LexerError;
     }
 
-    //performs expect on peek_token
-    fn expect(self: *Self, expected: []const TokenType) ParseError!void {
-        for (expected) |expTag| {
-            if (@intFromEnum(self.peek_token.tag) == @intFromEnum(expTag)) return;
+    fn expect_delimiter(self: *Self, expected: TokenType) !void {
+        if (@intFromEnum(self.peek_token.tag) != @intFromEnum(expected)) {
+            std.log.err("Unexpected token {s} expected {any}", .{ self.peek_token, expected });
+            return ParseError.UnexpectedToken;
         }
-        std.log.err("Unexpected token {s}", .{self.peek_token});
-        return ParseError.UnexpectedToken;
+        try self.adv();
+        try self.adv();
     }
 
-    //expects a sequence of tokens to follow in an exact order
-    fn expect_seq(self: *Self, expected: []const TokenType) ParseError!void {
-        for (expected) |expTag| {
-            if (@intFromEnum(self.peek_token.tag) != @intFromEnum(expTag)) {
-                std.log.err("Unexpected token {s} expected {any}", .{ self.peek_token, expTag });
-                return ParseError.UnexpectedToken;
-            }
-            try self.adv();
+    fn assert_token_is(self: *Self, expected: TokenType) !Token {
+        if (@intFromEnum(self.token.tag) != @intFromEnum(expected)) {
+            std.log.err("Unexpected token {s} expected {any}", .{ self.token, expected });
+            return ParseError.UnexpectedToken;
         }
+        const v = self.token;
+        try self.adv();
+        return v;
     }
 
-    //fn expect2
-
-    fn expect_cur(self: *Self, expected: TokenType) ParseError!void {
-        if (@intFromEnum(self.token.tag) == @intFromEnum(expected)) return;
-        std.log.err("Unexpected token {s}", .{self.token});
-        return ParseError.UnexpectedToken;
+    fn expect(self: *Self, expected: TokenType) !Token {
+        if (@intFromEnum(self.peek_token.tag) != @intFromEnum(expected)) {
+            std.log.err("Unexpected token {s} expected {any}", .{ self.peek_token, expected });
+            return ParseError.UnexpectedToken;
+        }
+        const v = self.peek_token;
+        try self.adv();
+        return v;
     }
 
     fn new_node(self: *Self, comptime T: type) *T {
@@ -91,10 +93,9 @@ pub const ParserState = struct {
 const DeclarationParser = struct {
     //
     fn parse(p: *ParserState) !AST.Declaration {
-        try p.expect_cur(.{ .Identifier = "" });
-        const name_tk = p.token;
-        try p.expect_seq(&[_]TokenType{ .Colon, .Colon });
-        try p.adv();
+        const name_tk = try p.assert_token_is(.{ .Identifier = "" });
+        _ = try p.assert_token_is(.Colon);
+        _ = try p.assert_token_is(.Colon);
 
         switch (p.token.tag) {
             .Fn => return try parse_func_decl(p, name_tk),
@@ -102,7 +103,7 @@ const DeclarationParser = struct {
             else => {
                 const start_tk = p.token;
                 const const_expr = ExpressionParser.parse_precedence(p, .Lowest) catch {
-                    std.log.err("Expected fn, record or constant declaration after `::` got {s}", .{start_tk});
+                    std.log.err("Expected function, record or constant declaration after `::` got {s}", .{start_tk});
                     return ParseError.UnexpectedToken;
                 };
                 _ = const_expr;
@@ -115,10 +116,9 @@ const DeclarationParser = struct {
         var decl = p.new_node(AST.FunctionDeclaration);
         decl.name_tk = name_tk;
         decl.params = null;
+        decl.return_type_tk = null;
 
-        try p.expect(&[_]TokenType{.Lparen});
-        try p.adv();
-        try p.adv();
+        try p.expect_delimiter(.Lparen);
 
         if (p.token.tag != .Rparen) {
             try parse_param_list(p, &decl.params);
@@ -126,15 +126,15 @@ const DeclarationParser = struct {
         }
         try p.adv(); //consume rparen
 
-        try p.expect_cur(.{ .Identifier = "" });
-        decl.return_type_tk = p.token;
-        try p.adv();
-        try p.expect_cur(.Lbrace);
-        try p.adv();
+        if (@intFromEnum(p.token.tag) == @intFromEnum(TokenType{ .Identifier = "" })) {
+            decl.return_type_tk = p.token;
+            try p.adv();
+        }
+
+        _ = try p.assert_token_is(.Lbrace);
 
         decl.body = ExpressionParser.parse(p);
-        try p.expect_cur(.Rbrace);
-        try p.adv();
+        _ = try p.assert_token_is(.Rbrace);
 
         return .{ .FuncDecl = decl };
     }
@@ -143,20 +143,16 @@ const DeclarationParser = struct {
         var param = p.new_node(AST.ParamList);
         param.next = null;
 
-        param.name_tk = p.token;
-        try p.expect_cur(.{ .Identifier = "" });
-        try p.expect(&[_]TokenType{.Colon});
-        try p.adv();
-        try p.adv();
-        try p.expect_cur(.{ .Identifier = "" });
-        param.type_tk = p.token;
+        param.name_tk = try p.assert_token_is(.{ .Identifier = "" });
+        _ = try p.assert_token_is(.Colon);
+
+        param.type_tk = try p.assert_token_is(.{ .Identifier = "" });
 
         prev.* = param;
-        if (p.peek_token.tag == .Rparen) return;
 
-        try p.expect(&[_]TokenType{.Comma});
-        try p.adv();
-        try p.adv();
+        if (p.token.tag == .Rparen) return;
+        _ = try p.assert_token_is(.Comma);
+
         return parse_param_list(p, &param.next);
     }
 };
@@ -197,16 +193,9 @@ const ExpressionParser = struct {
             return dummy_expression(p);
         };
 
-        p.expect(&[_]TokenType{.Semicolon}) catch {
+        p.expect_delimiter(.Semicolon) catch {
             p.errors += 1;
-            return dummy_expression(p);
-        };
-
-        p.adv() catch {
-            p.errors += 1;
-        };
-        p.adv() catch {
-            p.errors += 1;
+            return expr;
         };
 
         return expr;
@@ -277,8 +266,7 @@ const ExpressionParser = struct {
 
         var expr = try parse_precedence(p, .Lowest);
 
-        try p.expect(&[_]TokenType{.Rparen});
-        try p.adv();
+        _ = try p.expect(.Rparen);
 
         return expr;
     }
@@ -311,9 +299,7 @@ const ExpressionParser = struct {
 
         if (p.peek_token.tag == .Rparen) return;
 
-        try p.expect(&[_]TokenType{.Comma});
-        try p.adv();
-        try p.adv();
+        try p.expect_delimiter(.Comma);
         return parse_arg(p, &new_node.next);
     }
 
