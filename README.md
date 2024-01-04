@@ -1,12 +1,12 @@
 # Osmium
 An attempt at a simple procedural programming language written in Zig. The language design was based on Jai, Odin, Go, Zig, Rust, C and OCaml in no particular order.
 
-## Hello World
-this is the current **goal** for the compiler it currently is not even close to compiling this.
-```
-#import "io"
+## Current Goal
+get to a turing complete stage capable of printing hello, world!
+- [x] lexer
+- [ ] parser
+- [ ] ir gen
+- [ ] interpreter
+- [ ] native compiler
+- [ ] type checking (may introduce another ast / ir)
 
-main :: fn() {
-    io.print("Hello, World!")
-}
-``` 
