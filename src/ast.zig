@@ -33,7 +33,7 @@ pub const Declaration = union(enum) {
                 try writer.print("    fields: {s}\n", .{decl.fields});
             },
             .ConstantDeclaration => |decl| {
-                try writer.print("{s} :: {s}", .{ decl.name_tk.tag, decl.value });
+                try writer.print("constant: {s} :: {s}", .{ decl.name_tk.tag, decl.value });
             },
         }
     }

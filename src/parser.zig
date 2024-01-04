@@ -112,10 +112,15 @@ const DeclarationParser = struct {
         switch (p.token.tag) {
             .Fn => return try parse_func_decl(p, name_tk),
             .Record => @panic("Not implemented"),
-            else => {
-                @panic("constant delcaraitons not implemented");
-            },
+            else => return try parse_const_decl(p, name_tk),
         }
+    }
+
+    fn parse_const_decl(p: *ParserState, name_tk: Token) !AST.Declaration {
+        const decl = p.new_node(AST.ConstantDeclarationNode);
+        decl.name_tk = name_tk;
+        decl.value = try ExpressionParser.parse(p);
+        return .{ .ConstantDeclaration = decl };
     }
 
     fn parse_func_decl(p: *ParserState, name_tk: Token) !AST.Declaration {

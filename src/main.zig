@@ -18,6 +18,8 @@ pub fn main() !void {
     var bw = std.io.bufferedWriter(stdout_file);
     const stdout = bw.writer();
 
+    errdefer bw.flush() catch {};
+
     //read in cli options
     var args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
@@ -53,6 +55,8 @@ pub fn main() !void {
     var output_buffer = std.io.bufferedWriter(output_fd.writer());
     const output_writer = output_buffer.writer();
 
+    errdefer output_buffer.flush() catch {};
+
     if (file_buffer.len == 0) {
         std.log.err("File {s} was found but is empty", .{cli_options.input_file});
         return;
@@ -75,9 +79,7 @@ pub fn main() !void {
     defer p.deinit();
 
     if (cli_options.parse_only) {
-        for (p.top_level) |decl| {
-            try output_writer.print("{any} \n", .{decl});
-        }
+        try print_parser(output_writer, &p);
         try output_buffer.flush();
         return;
     }
@@ -155,5 +157,11 @@ fn print_lexer(writer: anytype, l: *lexing.Lexer) !void {
     var t = l.next() orelse return;
     while (t.tag != .EOF) : (t = l.next() orelse return) {
         try writer.print("{s}\n", .{t});
+    }
+}
+
+fn print_parser(writer: anytype, p: *parsing.ParserState) !void {
+    for (p.top_level) |decl| {
+        try writer.print("{any} \n", .{decl});
     }
 }
