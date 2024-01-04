@@ -4,10 +4,9 @@ const assert = @import("std").debug.assert;
 const Lexer = @import("lexer.zig").Lexer;
 const Token = @import("token.zig").Token;
 const TokenType = @import("token.zig").TokenType;
-const AST = @import("ast_placeholder.zig");
+const AST = @import("ast.zig");
 
 //TODO: accesses like array.0 or record.x
-//TODO: rethink error handling method
 //TODO: allow expression statements
 
 const ParseError = error{
@@ -23,22 +22,35 @@ pub const ParserState = struct {
     peek_token: Token,
     node_arena: std.heap.ArenaAllocator,
 
+    top_level: []AST.Declaration,
+
     pub fn init(l: *Lexer, allocator: std.mem.Allocator) ?Self {
         return .{
             .lexer = l,
             .node_arena = std.heap.ArenaAllocator.init(allocator),
             .token = l.next() orelse return null,
             .peek_token = l.next() orelse return null,
+            .top_level = undefined,
         };
     }
 
-    pub fn parse(self: *Self) AST.Declaration {
-        const r = DeclarationParser.parse(self) catch {
-            @panic("declaration failed");
-        };
+    //fills the top level member with all "roots" of the AST
+    pub fn parse(self: *Self) void {
+        var top_level_declarations = std.ArrayList(AST.Declaration).init(self.node_arena.allocator());
+        while (self.token.tag != .EOF) {
+            const decl = DeclarationParser.parse(self) catch {
+                continue; //if the declaration failed skip it try and parse the next one
+            };
+            top_level_declarations.append(decl) catch {
+                @panic("FATAL COMPILER ERROR: Could not create owned slice");
+            };
+        }
+
         assert(self.token.tag == .EOF);
 
-        return r;
+        self.top_level = top_level_declarations.toOwnedSlice() catch {
+            @panic("FATAL COMPILER ERROR: Could not create owned slice");
+        };
     }
 
     fn adv(self: *Self) !void {
@@ -49,6 +61,8 @@ pub const ParserState = struct {
     fn expect_delimiter(self: *Self, expected: TokenType) !void {
         if (!(TokenType.eq(self.peek_token.tag, expected))) {
             std.log.err("Unexpected token {s} expected {s}", .{ self.peek_token, expected });
+            try self.adv();
+            try self.adv();
             return ParseError.UnexpectedToken;
         }
         try self.adv();
@@ -58,6 +72,7 @@ pub const ParserState = struct {
     fn assert_token_is(self: *Self, expected: TokenType) !Token {
         if (!(TokenType.eq(self.token.tag, expected))) {
             std.log.err("Unexpected token {s} expected {s}", .{ self.token, expected });
+            try self.adv();
             return ParseError.UnexpectedToken;
         }
         const v = self.token;
@@ -68,6 +83,7 @@ pub const ParserState = struct {
     fn expect(self: *Self, expected: TokenType) !Token {
         if (!(TokenType.eq(self.peek_token.tag, expected))) {
             std.log.err("Unexpected token {s} expected {s}", .{ self.peek_token, expected });
+            try self.adv();
             return ParseError.UnexpectedToken;
         }
         const v = self.peek_token;
@@ -82,11 +98,13 @@ pub const ParserState = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        self.node_arena.deinit();
+        defer self.node_arena.deinit();
+        self.node_arena.allocator().free(self.top_level);
     }
 };
 
 const DeclarationParser = struct {
+    //does not error if procedure body errors (tries to parse all statements in body if possible)
     fn parse(p: *ParserState) !AST.Declaration {
         const name_tk = try p.assert_token_is(.{ .Identifier = "" });
         _ = try p.assert_token_is(.Colon);

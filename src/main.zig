@@ -67,10 +67,10 @@ pub fn main() !void {
         @panic("Not Implemented");
     }
 
-    const exp = p.parse();
+    p.parse();
     defer p.deinit();
 
-    try stdout.print("{any} \n", .{exp});
+    try stdout.print("{any} \n", .{p.top_level[0]});
     try bw.flush();
 }
 

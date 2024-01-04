@@ -1,62 +1,81 @@
 const std = @import("std");
 
+const Location = @import("common.zig").Location;
 const Token = @import("token.zig").Token;
 const TokenType = @import("token.zig").TokenType;
 
-//TODO: better naming scheme for union tag vs type
+// Declarations
 
 pub const Declaration = union(enum) {
-    FuncDecl: *FunctionDeclaration,
+    FunctionDeclaration: *FunctionDeclarationNode,
+    RecordDeclaration: *RecordDeclarationNode,
+    ConstantDeclaration: *ConstantDeclarationNode,
 };
 
-pub const FunctionDeclaration = struct {
+//name :: fn(p1: type, p2: type) optional type {body}
+pub const FunctionDeclarationNode = struct {
     name_tk: Token,
     return_type_tk: ?Token,
-    params: ?*ParamList, //head to a linked list
+    params: ?*ParamList,
     body: Statement,
 };
 
-//linked list node
+//name :: record{field1: type, field2: type}
+pub const RecordDeclarationNode = struct {
+    name_tk: Token,
+    fields: ?*ParamList,
+};
+
 pub const ParamList = struct {
     name_tk: Token,
     type_tk: Token,
     next: ?*ParamList,
 };
 
+//name :: value
+pub const ConstantDeclarationNode = struct {
+    name_tk: Token,
+    value: Expression,
+};
+
+// Statements
+
 pub const Statement = union(enum) {
     ExpressionStatement: Expression,
     ReturnStatement: Expression,
 };
 
+// Expressions
+
 pub const Expression = union(enum) {
-    BinaryExprNode: *BinaryExpression,
-    UnaryExprNode: *UnaryExpression,
-    FuncCall: *FunctionCallExpression,
+    BinaryExpression: *BinaryExpressionNode,
+    UnaryExpression: *UnaryExpressionNode,
+    FunctionInvokation: *FunctionInvokationNode,
     LiteralInt: Token,
     LiteralFloat: Token,
     LiteralBool: Token,
     LiteralString: Token,
-    IdentifierUsage: Token,
+    IdentifierInvokation: Token,
 
     pub fn format(self: Expression, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         switch (self) {
-            .LiteralBool, .LiteralFloat, .LiteralString, .LiteralInt, .IdentifierUsage => |tk| try writer.print("{s}", .{tk}),
-            .BinaryExprNode => |expr| {
+            .LiteralBool, .LiteralFloat, .LiteralString, .LiteralInt, .IdentifierInvokation => |tk| try writer.print("{s}", .{tk}),
+            .BinaryExpression => |expr| {
                 try writer.print("( ", .{});
                 try expr.lhs.format(fmt, options, writer);
                 try writer.print(" )", .{});
-                try writer.print(" {s} ", .{expr.op.tagRepr.?});
+                try writer.print(" {s} ", .{expr.op.tag});
                 try writer.print("( ", .{});
                 try expr.rhs.format(fmt, options, writer);
                 try writer.print(" )", .{});
             },
-            .UnaryExprNode => |expr| {
-                try writer.print("{s}", .{expr.op.tagRepr.?});
+            .UnaryExpression => |expr| {
+                try writer.print("{s}", .{expr.op.tag});
                 try writer.print("( ", .{});
                 try expr.expr.format(fmt, options, writer);
                 try writer.print(" )", .{});
             },
-            .FuncCall => |expr| {
+            .FunctionInvokation => |expr| {
                 try writer.print("{s} ( ", .{expr.name_tk});
                 defer writer.print(")", .{}) catch {};
                 if (expr.args_list == null) return;
@@ -74,23 +93,25 @@ pub const Expression = union(enum) {
     }
 };
 
-pub const BinaryExpression = struct {
+// a + b;
+pub const BinaryExpressionNode = struct {
     lhs: Expression,
     rhs: Expression,
     op: Token,
 };
 
-pub const UnaryExpression = struct {
-    op: Token,
+// !a;
+pub const UnaryExpressionNode = struct {
     expr: Expression,
+    op: Token,
 };
 
-pub const FunctionCallExpression = struct {
+// func(a + b);
+pub const FunctionInvokationNode = struct {
     name_tk: Token,
-    args_list: ?*ExprList, //head node of a linked list
+    args_list: ?*ExprList,
 };
 
-//linked list node
 pub const ExprList = struct {
     expr: Expression,
     next: ?*ExprList,
