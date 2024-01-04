@@ -10,6 +10,30 @@ pub const Declaration = union(enum) {
     FunctionDeclaration: *FunctionDeclarationNode,
     RecordDeclaration: *RecordDeclarationNode,
     ConstantDeclaration: *ConstantDeclarationNode,
+
+    pub fn format(self: Declaration, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = fmt; // autofix
+        _ = options; // autofix
+        switch (self) {
+            .FunctionDeclaration => |decl| {
+                try writer.print("fn {s}\n", .{decl.name_tk.tag});
+
+                if (decl.params) |p| try writer.print("    params: {s}\n", .{p});
+
+                if (decl.return_type_tk) |tk| {
+                    try writer.print("    return: {s}\n", .{tk.tag});
+                } else try writer.print("    return: unspecified\n", .{});
+
+                try writer.print("    body: {s}\n", .{decl.body});
+            },
+            .RecordDeclaration => |decl| {
+                _ = decl; // autofix
+            },
+            .ConstantDeclaration => |decl| {
+                try writer.print("{s} :: {s}", .{ decl.name_tk.tag, decl.value });
+            },
+        }
+    }
 };
 
 //name :: fn(p1: type, p2: type) optional type {body}
@@ -30,6 +54,12 @@ pub const ParamList = struct {
     name_tk: Token,
     type_tk: Token,
     next: ?*ParamList,
+
+    //has a formatter because printing these recursively is cleaner then a while loop in the union
+    pub fn format(self: ParamList, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        try writer.print("{s} : {s}, ", .{ self.name_tk.tag, self.type_tk.tag });
+        if (self.next) |next| try next.format(fmt, options, writer);
+    }
 };
 
 //name :: value
@@ -43,6 +73,15 @@ pub const ConstantDeclarationNode = struct {
 pub const Statement = union(enum) {
     ExpressionStatement: Expression,
     ReturnStatement: Expression,
+
+    pub fn format(self: Statement, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        switch (self) {
+            .ExpressionStatement => |expr| try expr.format(fmt, options, writer),
+            .ReturnStatement => |expr| {
+                try writer.print("return: {s}", .{expr});
+            },
+        }
+    }
 };
 
 // Expressions
@@ -59,7 +98,7 @@ pub const Expression = union(enum) {
 
     pub fn format(self: Expression, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         switch (self) {
-            .LiteralBool, .LiteralFloat, .LiteralString, .LiteralInt, .IdentifierInvokation => |tk| try writer.print("{s}", .{tk}),
+            .LiteralBool, .LiteralFloat, .LiteralString, .LiteralInt, .IdentifierInvokation => |tk| try writer.print("{s}", .{tk.tag}),
             .BinaryExpression => |expr| {
                 try writer.print("( ", .{});
                 try expr.lhs.format(fmt, options, writer);
@@ -76,18 +115,9 @@ pub const Expression = union(enum) {
                 try writer.print(" )", .{});
             },
             .FunctionInvokation => |expr| {
-                try writer.print("{s} ( ", .{expr.name_tk});
+                try writer.print("{s} ( ", .{expr.name_tk.tag});
                 defer writer.print(")", .{}) catch {};
-                if (expr.args_list == null) return;
-                var node = expr.args_list.?;
-                while (true) {
-                    try writer.print("{s}, ", .{node.expr});
-                    if (node.next) |next| {
-                        node = next;
-                    } else {
-                        break;
-                    }
-                }
+                if (expr.args_list) |list| try writer.print("{s}", .{list});
             },
         }
     }
@@ -115,4 +145,9 @@ pub const FunctionInvokationNode = struct {
 pub const ExprList = struct {
     expr: Expression,
     next: ?*ExprList,
+
+    pub fn format(self: ExprList, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        try writer.print("{s}, ", .{self.expr});
+        if (self.next) |next| try next.format(fmt, options, writer);
+    }
 };
