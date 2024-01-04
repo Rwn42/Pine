@@ -78,6 +78,8 @@ pub const Statement = union(enum) {
     ReturnStatement: Expression,
     VariableDeclaration: *VariableDeclarationNode,
     VariableAssignment: *VariableAssignmentNode,
+    IfStatement: *IfStatementNode,
+    WhileStatement: *WhileStatementNode,
 
     pub fn format(self: Statement, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         switch (self) {
@@ -96,6 +98,18 @@ pub const Statement = union(enum) {
                 try writer.print("variable assignment: {s}", .{decl.name_tk.tag});
                 try writer.print(" body: {s}", .{decl.assignment});
             },
+            .IfStatement => |stmt| {
+                try writer.print("if: {s} do: ", .{stmt.condition});
+                for (stmt.body) |stmt2| {
+                    try stmt2.format(fmt, options, writer);
+                }
+            },
+            .WhileStatement => |stmt| {
+                try writer.print("while: {s} do: ", .{stmt.condition});
+                for (stmt.body) |stmt2| {
+                    try stmt2.format(fmt, options, writer);
+                }
+            },
         }
     }
 };
@@ -109,6 +123,18 @@ pub const VariableDeclarationNode = struct {
 pub const VariableAssignmentNode = struct {
     name_tk: Token,
     assignment: Expression,
+};
+
+pub const IfStatementNode = struct {
+    start_loc: Location,
+    condition: Expression,
+    body: []Statement,
+};
+
+pub const WhileStatementNode = struct {
+    start_loc: Location,
+    condition: Expression,
+    body: []Statement,
 };
 
 // Expressions

@@ -8,8 +8,8 @@ const AST = @import("ast.zig");
 
 //TODO: accesses like array.0 or record.x
 //TODO: type cast expression
-//TODO: simple if / while statements
 //TODO: change type_tk to a type struct so types like ^int can exist
+//TODO: clean up code desperately
 
 const ParseError = error{
     UnexpectedToken,
@@ -121,7 +121,7 @@ const DeclarationParser = struct {
     fn parse_const_decl(p: *ParserState, name_tk: Token) !AST.Declaration {
         const decl = p.new_node(AST.ConstantDeclarationNode);
         decl.name_tk = name_tk;
-        decl.value = try ExpressionParser.parse(p);
+        decl.value = try ExpressionParser.parse(p, .Semicolon);
         return .{ .ConstantDeclaration = decl };
     }
 
@@ -182,13 +182,29 @@ const DeclarationParser = struct {
 const StatementParser = struct {
     fn parse(p: *ParserState) !AST.Statement {
         const tk = p.token;
-        try p.adv();
+
         return switch (tk.tag) {
-            .Return => .{ .ReturnStatement = try ExpressionParser.parse(p) },
-            .Identifier => try parse_local_var(p, tk),
+            .Return => {
+                try p.adv();
+                return .{ .ReturnStatement = try ExpressionParser.parse(p, .Semicolon) };
+            },
+            .Identifier => blk: {
+                if (p.peek_token.tag == .Lparen) {
+                    const start_tk = p.token;
+                    const expr_statement = ExpressionParser.parse(p, .Semicolon) catch {
+                        std.log.err("No statement starts with {s}", .{start_tk});
+                        return ParseError.UnexpectedToken;
+                    };
+                    return .{ .ExpressionStatement = expr_statement };
+                }
+                try p.adv();
+                break :blk try parse_local_var(p, tk);
+            },
+            .If => try parse_conditional(p, false, tk),
+            .While => try parse_conditional(p, true, tk),
             else => {
                 const start_tk = p.token;
-                const expr_statement = ExpressionParser.parse(p) catch {
+                const expr_statement = ExpressionParser.parse(p, .Semicolon) catch {
                     std.log.err("No statement starts with {s}", .{start_tk});
                     return ParseError.UnexpectedToken;
                 };
@@ -203,7 +219,7 @@ const StatementParser = struct {
             try p.adv();
             var node = p.new_node(AST.VariableAssignmentNode);
             node.name_tk = name_tk;
-            node.assignment = try ExpressionParser.parse(p);
+            node.assignment = try ExpressionParser.parse(p, .Semicolon);
             return .{ .VariableAssignment = node };
         }
         //struct / array assignment
@@ -228,7 +244,7 @@ const StatementParser = struct {
                     },
                     .Equal => blk: {
                         try p.adv();
-                        break :blk try ExpressionParser.parse(p);
+                        break :blk try ExpressionParser.parse(p, .Semicolon);
                     },
                     else => {
                         std.log.err("Unexpected Token {t} expected identifier or '='", .{p.token});
@@ -238,7 +254,7 @@ const StatementParser = struct {
             },
             .Equal => {
                 try p.adv();
-                node.assignment = try ExpressionParser.parse(p);
+                node.assignment = try ExpressionParser.parse(p, .Semicolon);
             },
             else => {
                 std.log.err("Unexpected Token {t} expected identifier or '='", .{p.token});
@@ -247,6 +263,40 @@ const StatementParser = struct {
         }
 
         return .{ .VariableDeclaration = node };
+    }
+
+    fn parse_conditional(p: *ParserState, is_while: bool, start_tk: Token) ParseError!AST.Statement {
+        try p.adv();
+        const condition = try ExpressionParser.parse(p, .Lbrace);
+        //_ = try p.assert_token_is(.Lbrace);
+
+        var body = std.ArrayList(AST.Statement).init(p.node_arena.allocator());
+
+        while (!TokenType.eq(p.token.tag, .Rbrace)) {
+            const s = try StatementParser.parse(p);
+            body.append(s) catch {
+                @panic("FATAL COMPILER ERROR: Out of memory");
+            };
+        }
+        _ = try p.assert_token_is(.Rbrace);
+
+        if (is_while) {
+            var node = p.new_node(AST.WhileStatementNode);
+            node.start_loc = start_tk.loc;
+            node.condition = condition;
+            node.body = body.toOwnedSlice() catch {
+                @panic("FATAL COMPILER ERROR: Out of memory");
+            };
+            return .{ .WhileStatement = node };
+        }
+
+        var node = p.new_node(AST.IfStatementNode);
+        node.start_loc = start_tk.loc;
+        node.condition = condition;
+        node.body = body.toOwnedSlice() catch {
+            @panic("FATAL COMPILER ERROR: Out of memory");
+        };
+        return .{ .IfStatement = node };
     }
 };
 
@@ -278,15 +328,25 @@ const Precedence = enum {
 
 // Expression parsing based off the building an interpreter in go book.
 const ExpressionParser = struct {
-    fn parse(p: *ParserState) !AST.Expression {
+    fn parse(p: *ParserState, expected_end: TokenType) !AST.Expression {
         const expr = try parse_precedence(p, .Lowest);
-        try p.expect_delimiter(.Semicolon);
+        try p.expect_delimiter(expected_end);
         return expr;
     }
 
     fn is_infix_op(typ: TokenType) bool {
         return switch (typ) {
-            .Plus, .Dash, .Asterisk, .SlashForward => true,
+            .Plus,
+            .Dash,
+            .Asterisk,
+            .SlashForward,
+            .LessThan,
+            .LessThanEqual,
+            .GreaterThan,
+            .GreaterThanEqual,
+            .DoubleEqual,
+            .NotEqual,
+            => true,
             else => false,
         };
     }
@@ -311,13 +371,21 @@ const ExpressionParser = struct {
                 return ParseError.UnexpectedToken;
             },
         };
-        while (!TokenType.eq(p.peek_token.tag, .Semicolon) and @intFromEnum(prec) < Precedence.from(p.peek_token.tag)) {
+        while (!expression_end_tk(p.peek_token.tag) and @intFromEnum(prec) < Precedence.from(p.peek_token.tag)) {
             if (!is_infix_op(p.peek_token.tag)) return expr;
             try p.adv();
             expr = try parse_infix(p, expr);
         }
 
         return expr;
+    }
+
+    //possible values for a end of expression
+    fn expression_end_tk(input: TokenType) bool {
+        return switch (input) {
+            .Semicolon, .Rbrace, .Rbracket, .Lbrace => true,
+            else => false,
+        };
     }
 
     fn parse_prefix(p: *ParserState) !AST.Expression {
