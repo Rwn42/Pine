@@ -7,7 +7,9 @@ const TokenType = @import("token.zig").TokenType;
 const AST = @import("ast.zig");
 
 //TODO: accesses like array.0 or record.x
-//TODO: allow expression statements
+//TODO: local variable statements
+//TODO: type cast expression
+//TODO: simple if / while statements
 
 const ParseError = error{
     UnexpectedToken,
