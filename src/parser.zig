@@ -7,9 +7,9 @@ const TokenType = @import("token.zig").TokenType;
 const AST = @import("ast.zig");
 
 //TODO: accesses like array.0 or record.x
-//TODO: local variable statements
 //TODO: type cast expression
 //TODO: simple if / while statements
+//TODO: change type_tk to a type struct so types like ^int can exist
 
 const ParseError = error{
     UnexpectedToken,
@@ -185,6 +185,7 @@ const StatementParser = struct {
         try p.adv();
         return switch (tk.tag) {
             .Return => .{ .ReturnStatement = try ExpressionParser.parse(p) },
+            .Identifier => try parse_local_var(p, tk),
             else => {
                 const start_tk = p.token;
                 const expr_statement = ExpressionParser.parse(p) catch {
@@ -194,6 +195,58 @@ const StatementParser = struct {
                 return .{ .ExpressionStatement = expr_statement };
             },
         };
+    }
+
+    fn parse_local_var(p: *ParserState, name_tk: Token) !AST.Statement {
+        //variable assignment
+        if (TokenType.eq(p.token.tag, .Equal)) {
+            try p.adv();
+            var node = p.new_node(AST.VariableAssignmentNode);
+            node.name_tk = name_tk;
+            node.assignment = try ExpressionParser.parse(p);
+            return .{ .VariableAssignment = node };
+        }
+        //struct / array assignment
+        if (TokenType.eq(p.token.tag, .Dot)) {
+            @panic("Not Implemented");
+        }
+
+        //variable declaration
+        _ = try p.assert_token_is(.Colon);
+
+        var node = p.new_node(AST.VariableDeclarationNode);
+        node.name_tk = name_tk;
+        node.type_tk = null;
+        switch (p.token.tag) {
+            .Identifier => {
+                node.type_tk = p.token;
+                try p.adv();
+                node.assignment = switch (p.token.tag) {
+                    .Semicolon => blk: {
+                        try p.adv();
+                        break :blk null;
+                    },
+                    .Equal => blk: {
+                        try p.adv();
+                        break :blk try ExpressionParser.parse(p);
+                    },
+                    else => {
+                        std.log.err("Unexpected Token {t} expected identifier or '='", .{p.token});
+                        return ParseError.UnexpectedToken;
+                    },
+                };
+            },
+            .Equal => {
+                try p.adv();
+                node.assignment = try ExpressionParser.parse(p);
+            },
+            else => {
+                std.log.err("Unexpected Token {t} expected identifier or '='", .{p.token});
+                return ParseError.UnexpectedToken;
+            },
+        }
+
+        return .{ .VariableDeclaration = node };
     }
 };
 

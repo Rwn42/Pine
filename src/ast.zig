@@ -76,6 +76,8 @@ pub const ConstantDeclarationNode = struct {
 pub const Statement = union(enum) {
     ExpressionStatement: Expression,
     ReturnStatement: Expression,
+    VariableDeclaration: *VariableDeclarationNode,
+    VariableAssignment: *VariableAssignmentNode,
 
     pub fn format(self: Statement, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         switch (self) {
@@ -83,8 +85,30 @@ pub const Statement = union(enum) {
             .ReturnStatement => |expr| {
                 try writer.print("return: {s}", .{expr});
             },
+            .VariableDeclaration => |decl| {
+                try writer.print("variable declaration: {s} ", .{decl.name_tk.tag});
+                if (decl.type_tk) |typ| try writer.print("type: {s} ", .{typ.tag});
+                if (decl.assignment) |expr| {
+                    try writer.print("body: {s}", .{expr});
+                }
+            },
+            .VariableAssignment => |decl| {
+                try writer.print("variable assignment: {s}", .{decl.name_tk.tag});
+                try writer.print(" body: {s}", .{decl.assignment});
+            },
         }
     }
+};
+
+pub const VariableDeclarationNode = struct {
+    name_tk: Token,
+    type_tk: ?Token,
+    assignment: ?Expression,
+};
+
+pub const VariableAssignmentNode = struct {
+    name_tk: Token,
+    assignment: Expression,
 };
 
 // Expressions
