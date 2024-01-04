@@ -8,6 +8,9 @@ const StringManager = @import("common.zig").StringManager;
 
 const MAX_FILE_BYTES = 1024 * 1024;
 
+//TODO: -l -p should write to file
+//TODO: formalize @panic messages
+
 pub fn main() !void {
     //setting stuff up
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -63,14 +66,20 @@ pub fn main() !void {
     }
 
     var p = parsing.ParserState.init(&l, allocator) orelse return;
-    if (cli_options.parse_only) {
-        @panic("Not Implemented");
-    }
-
     p.parse();
     defer p.deinit();
 
-    try stdout.print("{any} \n", .{p.top_level[0]});
+    if (cli_options.parse_only) {
+        for (p.top_level) |decl| {
+            try stdout.print("{any} \n", .{decl});
+        }
+        try bw.flush();
+        return;
+    }
+
+    for (p.top_level) |decl| {
+        try stdout.print("{any} \n", .{decl});
+    }
     try bw.flush();
 }
 

@@ -24,10 +24,13 @@ pub const Declaration = union(enum) {
                     try writer.print("    return: {s}\n", .{tk.tag});
                 } else try writer.print("    return: unspecified\n", .{});
 
-                try writer.print("    body: {s}\n", .{decl.body});
+                try writer.print("    body:\n", .{});
+                for (decl.body) |s| {
+                    try writer.print("        {s}\n", .{s});
+                }
             },
             .RecordDeclaration => |decl| {
-                _ = decl; // autofix
+                try writer.print("    fields: {s}\n", .{decl.fields});
             },
             .ConstantDeclaration => |decl| {
                 try writer.print("{s} :: {s}", .{ decl.name_tk.tag, decl.value });
@@ -41,13 +44,13 @@ pub const FunctionDeclarationNode = struct {
     name_tk: Token,
     return_type_tk: ?Token,
     params: ?*ParamList,
-    body: Statement,
+    body: []Statement,
 };
 
 //name :: record{field1: type, field2: type}
 pub const RecordDeclarationNode = struct {
     name_tk: Token,
-    fields: ?*ParamList,
+    fields: *ParamList,
 };
 
 pub const ParamList = struct {

@@ -98,8 +98,7 @@ pub const ParserState = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        defer self.node_arena.deinit();
-        self.node_arena.allocator().free(self.top_level);
+        self.node_arena.deinit();
     }
 };
 
@@ -121,6 +120,8 @@ const DeclarationParser = struct {
 
     fn parse_func_decl(p: *ParserState, name_tk: Token) !AST.Declaration {
         var decl = p.new_node(AST.FunctionDeclarationNode);
+        var body = std.ArrayList(AST.Statement).init(p.node_arena.allocator());
+
         decl.name_tk = name_tk;
         decl.params = null;
         decl.return_type_tk = null;
@@ -139,9 +140,17 @@ const DeclarationParser = struct {
 
         _ = try p.assert_token_is(.Lbrace);
 
-        decl.body = try StatementParser.parse(p); //eventually body will still try and parse even if there is an error
+        while (!TokenType.eq(p.token.tag, TokenType.Rbrace)) {
+            body.append(try StatementParser.parse(p)) catch {
+                @panic("FATAL COMPILER ERROR: ARRAY APPEND FAILED");
+            };
+        }
+
         _ = try p.assert_token_is(.Rbrace);
 
+        decl.body = body.toOwnedSlice() catch {
+            @panic("FATAL COMPILER ERROR: To owned slice failed");
+        };
         return .{ .FunctionDeclaration = decl };
     }
 
@@ -170,8 +179,12 @@ const StatementParser = struct {
         return switch (tk.tag) {
             .Return => .{ .ReturnStatement = try ExpressionParser.parse(p) },
             else => {
-                std.log.err("No statement starts with {s}", .{p.token});
-                return ParseError.UnexpectedToken;
+                const start_tk = p.token;
+                const expr_statement = ExpressionParser.parse(p) catch {
+                    std.log.err("No statement starts with {s}", .{start_tk});
+                    return ParseError.UnexpectedToken;
+                };
+                return .{ .ExpressionStatement = expr_statement };
             },
         };
     }
