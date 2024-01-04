@@ -58,7 +58,6 @@ pub const Lexer = struct {
         var cwt = Token{
             .loc = self.loc,
             .tag = .EOF,
-            .tagRepr = null,
         };
 
         const initial = self.char();
@@ -139,8 +138,6 @@ pub const Lexer = struct {
                 return null;
             },
         };
-
-        cwt.tagRepr = TokenType.Repr.get(@tagName(cwt.tag));
 
         self.adv();
 

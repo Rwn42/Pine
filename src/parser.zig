@@ -4,7 +4,7 @@ const assert = @import("std").debug.assert;
 const Lexer = @import("lexer.zig").Lexer;
 const Token = @import("token.zig").Token;
 const TokenType = @import("token.zig").TokenType;
-const AST = @import("ast.zig");
+const AST = @import("ast_placeholder.zig");
 
 //TODO: accesses like array.0 or record.x
 //TODO: rethink error handling method
@@ -17,13 +17,11 @@ const ParseError = error{
 
 pub const ParserState = struct {
     const Self = @This();
-    const ERROR_THRESHOLD = 12; // random choice of value will halt parsing if errors member exceeds
 
     lexer: *Lexer,
     token: Token,
     peek_token: Token,
     node_arena: std.heap.ArenaAllocator,
-    errors: usize,
 
     pub fn init(l: *Lexer, allocator: std.mem.Allocator) ?Self {
         return .{
@@ -31,7 +29,6 @@ pub const ParserState = struct {
             .node_arena = std.heap.ArenaAllocator.init(allocator),
             .token = l.next() orelse return null,
             .peek_token = l.next() orelse return null,
-            .errors = 0,
         };
     }
 
@@ -50,8 +47,8 @@ pub const ParserState = struct {
     }
 
     fn expect_delimiter(self: *Self, expected: TokenType) !void {
-        if (@intFromEnum(self.peek_token.tag) != @intFromEnum(expected)) {
-            std.log.err("Unexpected token {s} expected {any}", .{ self.peek_token, expected });
+        if (!(TokenType.eq(self.peek_token.tag, expected))) {
+            std.log.err("Unexpected token {s} expected {s}", .{ self.peek_token, expected });
             return ParseError.UnexpectedToken;
         }
         try self.adv();
@@ -59,8 +56,8 @@ pub const ParserState = struct {
     }
 
     fn assert_token_is(self: *Self, expected: TokenType) !Token {
-        if (@intFromEnum(self.token.tag) != @intFromEnum(expected)) {
-            std.log.err("Unexpected token {s} expected {any}", .{ self.token, expected });
+        if (!(TokenType.eq(self.token.tag, expected))) {
+            std.log.err("Unexpected token {s} expected {s}", .{ self.token, expected });
             return ParseError.UnexpectedToken;
         }
         const v = self.token;
@@ -69,8 +66,8 @@ pub const ParserState = struct {
     }
 
     fn expect(self: *Self, expected: TokenType) !Token {
-        if (@intFromEnum(self.peek_token.tag) != @intFromEnum(expected)) {
-            std.log.err("Unexpected token {s} expected {any}", .{ self.peek_token, expected });
+        if (!(TokenType.eq(self.peek_token.tag, expected))) {
+            std.log.err("Unexpected token {s} expected {s}", .{ self.peek_token, expected });
             return ParseError.UnexpectedToken;
         }
         const v = self.peek_token;
@@ -80,7 +77,7 @@ pub const ParserState = struct {
 
     fn new_node(self: *Self, comptime T: type) *T {
         return self.node_arena.allocator().create(T) catch {
-            @panic("COMPILER ERROR: Could not allocate node!");
+            @panic("FATAL COMPILER ERROR: Could not allocate node!");
         };
     }
 
@@ -90,7 +87,6 @@ pub const ParserState = struct {
 };
 
 const DeclarationParser = struct {
-    //
     fn parse(p: *ParserState) !AST.Declaration {
         const name_tk = try p.assert_token_is(.{ .Identifier = "" });
         _ = try p.assert_token_is(.Colon);
@@ -100,41 +96,35 @@ const DeclarationParser = struct {
             .Fn => return try parse_func_decl(p, name_tk),
             .Record => @panic("Not implemented"),
             else => {
-                const start_tk = p.token;
-                const const_expr = ExpressionParser.parse_precedence(p, .Lowest) catch {
-                    std.log.err("Expected function, record or constant declaration after `::` got {s}", .{start_tk});
-                    return ParseError.UnexpectedToken;
-                };
-                _ = const_expr;
                 @panic("constant delcaraitons not implemented");
             },
         }
     }
 
     fn parse_func_decl(p: *ParserState, name_tk: Token) !AST.Declaration {
-        var decl = p.new_node(AST.FunctionDeclaration);
+        var decl = p.new_node(AST.FunctionDeclarationNode);
         decl.name_tk = name_tk;
         decl.params = null;
         decl.return_type_tk = null;
 
         try p.expect_delimiter(.Lparen);
 
-        if (p.token.tag != .Rparen) {
+        if (!TokenType.eq(p.peek_token.tag, .Rparen)) {
             try parse_param_list(p, &decl.params);
             try p.adv();
         }
 
-        if (@intFromEnum(p.token.tag) == @intFromEnum(TokenType{ .Identifier = "" })) {
+        if (TokenType.eq(p.token.tag, .{ .Identifier = "" })) {
             decl.return_type_tk = p.token;
             try p.adv();
         }
 
         _ = try p.assert_token_is(.Lbrace);
 
-        decl.body = try StatementParser.parse(p);
+        decl.body = try StatementParser.parse(p); //eventually body will still try and parse even if there is an error
         _ = try p.assert_token_is(.Rbrace);
 
-        return .{ .FuncDecl = decl };
+        return .{ .FunctionDeclaration = decl };
     }
 
     fn parse_param_list(p: *ParserState, prev: *?*AST.ParamList) !void {
@@ -148,7 +138,7 @@ const DeclarationParser = struct {
 
         prev.* = param;
 
-        if (p.token.tag == .Rparen) return;
+        if (TokenType.eq(p.token.tag, .Rparen)) return;
         _ = try p.assert_token_is(.Comma);
 
         return parse_param_list(p, &param.next);
@@ -160,7 +150,7 @@ const StatementParser = struct {
         const tk = p.token;
         try p.adv();
         return switch (tk.tag) {
-            .Return => .{ .ReturnStatement = ExpressionParser.parse(p) },
+            .Return => .{ .ReturnStatement = try ExpressionParser.parse(p) },
             else => {
                 std.log.err("No statement starts with {s}", .{p.token});
                 return ParseError.UnexpectedToken;
@@ -197,19 +187,9 @@ const Precedence = enum {
 
 // Expression parsing based off the building an interpreter in go book.
 const ExpressionParser = struct {
-    // does not return an error just increments the global error tracker and returns a dummy value on failure
-    // this allows the parser to keep parsing until an error threshold is met.
-    fn parse(p: *ParserState) AST.Expression {
-        const expr = parse_precedence(p, .Lowest) catch {
-            p.errors += 1;
-            return dummy_expression(p);
-        };
-
-        p.expect_delimiter(.Semicolon) catch {
-            p.errors += 1;
-            return expr;
-        };
-
+    fn parse(p: *ParserState) !AST.Expression {
+        const expr = try parse_precedence(p, .Lowest);
+        try p.expect_delimiter(.Semicolon);
         return expr;
     }
 
@@ -231,8 +211,8 @@ const ExpressionParser = struct {
             .Identifier => blk: {
                 break :blk switch (p.peek_token.tag) {
                     .Lparen => try parse_call(p),
-                    .Dot => @panic("Not Implemented"), //struct / array access
-                    else => .{ .IdentifierUsage = p.token },
+                    .Dot => @panic("struct access Not Implemented"), //struct / array access
+                    else => .{ .IdentifierInvokation = p.token },
                 };
             },
             else => {
@@ -240,8 +220,7 @@ const ExpressionParser = struct {
                 return ParseError.UnexpectedToken;
             },
         };
-
-        while (p.peek_token.tag != .Semicolon and @intFromEnum(prec) < Precedence.from(p.peek_token.tag)) {
+        while (!TokenType.eq(p.peek_token.tag, .Semicolon) and @intFromEnum(prec) < Precedence.from(p.peek_token.tag)) {
             if (!is_infix_op(p.peek_token.tag)) return expr;
             try p.adv();
             expr = try parse_infix(p, expr);
@@ -251,17 +230,17 @@ const ExpressionParser = struct {
     }
 
     fn parse_prefix(p: *ParserState) !AST.Expression {
-        var expr = p.new_node(AST.UnaryExpression);
+        var expr = p.new_node(AST.UnaryExpressionNode);
         expr.op = p.token;
 
         try p.adv();
 
         expr.expr = try parse_precedence(p, .Prefix);
-        return .{ .UnaryExprNode = expr };
+        return .{ .UnaryExpression = expr };
     }
 
     fn parse_infix(p: *ParserState, lhs: AST.Expression) !AST.Expression {
-        var expr = p.new_node(AST.BinaryExpression);
+        var expr = p.new_node(AST.BinaryExpressionNode);
         expr.lhs = lhs;
         expr.op = p.token;
 
@@ -269,7 +248,7 @@ const ExpressionParser = struct {
         try p.adv();
         expr.rhs = try parse_precedence(p, @enumFromInt(prec));
 
-        return .{ .BinaryExprNode = expr };
+        return .{ .BinaryExpression = expr };
     }
 
     //group expressions are those in parenthesis
@@ -284,21 +263,19 @@ const ExpressionParser = struct {
     }
 
     fn parse_call(p: *ParserState) !AST.Expression {
-        var expr = p.new_node(AST.FunctionCallExpression);
+        var expr = p.new_node(AST.FunctionInvokationNode);
         expr.name_tk = p.token;
         expr.args_list = null;
 
         try p.adv(); //lparen cur token
         try p.adv(); //first argument / rparen is cur token
 
-        if (p.token.tag == .Rparen) {
-            return .{ .FuncCall = expr };
-        }
+        if (TokenType.eq(p.token.tag, .Rparen)) return .{ .FunctionInvokation = expr };
 
         try parse_arg(p, &expr.args_list);
         try p.adv(); //consume rparen
 
-        return .{ .FuncCall = expr };
+        return .{ .FunctionInvokation = expr };
     }
 
     fn parse_arg(p: *ParserState, prev: *?*AST.ExprList) !void {
@@ -309,13 +286,9 @@ const ExpressionParser = struct {
         new_node.expr = arg;
         prev.* = new_node;
 
-        if (p.peek_token.tag == .Rparen) return;
+        if (TokenType.eq(p.peek_token.tag, .Rparen)) return;
 
         try p.expect_delimiter(.Comma);
         return parse_arg(p, &new_node.next);
-    }
-
-    fn dummy_expression(p: *ParserState) AST.Expression {
-        return .{ .IdentifierUsage = p.token };
     }
 };

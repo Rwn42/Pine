@@ -68,6 +68,10 @@ pub const TokenType = union(enum) {
         .{ "return", .Return },
     });
 
+    pub fn eq(t1: TokenType, t2: TokenType) bool {
+        return @intFromEnum(t1) == @intFromEnum(t2);
+    }
+
     pub const Repr = std.ComptimeStringMap([]const u8, .{
         .{ @tagName(TokenType.Fn), "fn" },
         .{ @tagName(TokenType.Record), "record" },
@@ -103,29 +107,28 @@ pub const TokenType = union(enum) {
         .{ @tagName(TokenType.EOF), "End of File" },
         .{ @tagName(TokenType.Equal), "=" },
     });
+
+    pub fn format(self: TokenType, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = options;
+        _ = fmt;
+
+        switch (self) {
+            .Identifier, .String => |val| try writer.print("'{s}'", .{val}),
+            .Integer => |val| try writer.print("'{d}'", .{val}),
+            .Float => |val| try writer.print("'{d}'", .{val}),
+            else => try writer.print("'{s}'", .{Repr.get(@tagName(self)).?}),
+        }
+    }
 };
 
 pub const Token = struct {
     loc: Location,
     tag: TokenType,
-    tagRepr: ?[]const u8, //for tokens with no data payload (most of them)
 
     pub fn format(self: Token, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = fmt;
         _ = options;
-
-        if (self.tagRepr) |repr| {
-            try writer.print("{s}", .{repr});
-        } else {
-            try writer.print("{s} ", .{@tagName(self.tag)});
-            _ = switch (self.tag) {
-                .Identifier, .String => |val| try writer.print("'{s}'", .{val}),
-                .Integer => |val| try writer.print("'{d}'", .{val}),
-                .Float => |val| try writer.print("'{d}'", .{val}),
-                else => null,
-            };
-        }
-
+        try writer.print("{s}", .{self.tag});
         try writer.print(" {s}", .{self.loc});
     }
 };

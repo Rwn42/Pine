@@ -7,7 +7,7 @@ const TokenType = @import("token.zig").TokenType;
 // Declarations
 
 pub const Declaration = union(enum) {
-    FunctionDelcaration: *FunctionDeclarationNode,
+    FunctionDeclaration: *FunctionDeclarationNode,
     RecordDeclaration: *RecordDeclarationNode,
     ConstantDeclaration: *ConstantDeclarationNode,
 };
@@ -17,7 +17,7 @@ pub const FunctionDeclarationNode = struct {
     name_tk: Token,
     return_type_tk: ?Token,
     params: ?*ParamList,
-    body: []Statement,
+    body: Statement,
 };
 
 //name :: record{field1: type, field2: type}
@@ -56,21 +56,57 @@ pub const Expression = union(enum) {
     LiteralBool: Token,
     LiteralString: Token,
     IdentifierInvokation: Token,
+
+    pub fn format(self: Expression, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        switch (self) {
+            .LiteralBool, .LiteralFloat, .LiteralString, .LiteralInt, .IdentifierInvokation => |tk| try writer.print("{s}", .{tk}),
+            .BinaryExpression => |expr| {
+                try writer.print("( ", .{});
+                try expr.lhs.format(fmt, options, writer);
+                try writer.print(" )", .{});
+                try writer.print(" {s} ", .{expr.op.tag});
+                try writer.print("( ", .{});
+                try expr.rhs.format(fmt, options, writer);
+                try writer.print(" )", .{});
+            },
+            .UnaryExpression => |expr| {
+                try writer.print("{s}", .{expr.op.tag});
+                try writer.print("( ", .{});
+                try expr.expr.format(fmt, options, writer);
+                try writer.print(" )", .{});
+            },
+            .FunctionInvokation => |expr| {
+                try writer.print("{s} ( ", .{expr.name_tk});
+                defer writer.print(")", .{}) catch {};
+                if (expr.args_list == null) return;
+                var node = expr.args_list.?;
+                while (true) {
+                    try writer.print("{s}, ", .{node.expr});
+                    if (node.next) |next| {
+                        node = next;
+                    } else {
+                        break;
+                    }
+                }
+            },
+        }
+    }
 };
 
+// a + b;
 pub const BinaryExpressionNode = struct {
     lhs: Expression,
     rhs: Expression,
     op: Token,
 };
 
-//!a
+// !a;
 pub const UnaryExpressionNode = struct {
-    lhs: Expression,
-    rhs: Expression,
+    expr: Expression,
     op: Token,
 };
 
+// func(a + b);
 pub const FunctionInvokationNode = struct {
     name_tk: Token,
     args_list: ?*ExprList,
