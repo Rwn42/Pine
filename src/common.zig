@@ -31,11 +31,11 @@ pub const StringManager = struct {
         if (s.exists_table.get(string)) |ptr| return ptr; //string is already in the map
 
         var new = s.arena.allocator().dupe(u8, string) catch {
-            @panic("FATAL COMPILER ERROR: String manager allocation failed");
+            @panic("FATAL COMPILER ERROR: Out of memory");
         };
 
         s.exists_table.put(string, new) catch {
-            @panic("FATAL COMPILER ERROR: String manager map allocation failed");
+            @panic("FATAL COMPILER ERROR: Out of memory");
         };
 
         return new;

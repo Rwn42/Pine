@@ -42,14 +42,14 @@ pub const ParserState = struct {
                 continue; //if the declaration failed skip it try and parse the next one
             };
             top_level_declarations.append(decl) catch {
-                @panic("FATAL COMPILER ERROR: Could not create owned slice");
+                @panic("FATAL COMPILER ERROR: Out of memory");
             };
         }
 
         assert(self.token.tag == .EOF);
 
         self.top_level = top_level_declarations.toOwnedSlice() catch {
-            @panic("FATAL COMPILER ERROR: Could not create owned slice");
+            @panic("FATAL COMPILER ERROR: Out of memory");
         };
     }
 
@@ -93,7 +93,7 @@ pub const ParserState = struct {
 
     fn new_node(self: *Self, comptime T: type) *T {
         return self.node_arena.allocator().create(T) catch {
-            @panic("FATAL COMPILER ERROR: Could not allocate node!");
+            @panic("FATAL COMPILER ERROR: Out of memory");
         };
     }
 
@@ -142,14 +142,14 @@ const DeclarationParser = struct {
 
         while (!TokenType.eq(p.token.tag, TokenType.Rbrace)) {
             body.append(try StatementParser.parse(p)) catch {
-                @panic("FATAL COMPILER ERROR: ARRAY APPEND FAILED");
+                @panic("FATAL COMPILER ERROR: Out of memory");
             };
         }
 
         _ = try p.assert_token_is(.Rbrace);
 
         decl.body = body.toOwnedSlice() catch {
-            @panic("FATAL COMPILER ERROR: To owned slice failed");
+            @panic("FATAL COMPILER ERROR: Out of memory");
         };
         return .{ .FunctionDeclaration = decl };
     }

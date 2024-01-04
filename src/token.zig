@@ -79,6 +79,7 @@ pub const TokenType = union(enum) {
         .{ @tagName(TokenType.False), "false" },
         .{ @tagName(TokenType.If), "if" },
         .{ @tagName(TokenType.Else), "else" },
+        .{ @tagName(TokenType.Return), "return" },
         .{ @tagName(TokenType.For), "for" },
         .{ @tagName(TokenType.While), "while" },
         .{ @tagName(TokenType.Plus), "+" },
@@ -116,7 +117,11 @@ pub const TokenType = union(enum) {
             .Identifier, .String => |val| try writer.print("'{s}'", .{val}),
             .Integer => |val| try writer.print("'{d}'", .{val}),
             .Float => |val| try writer.print("'{d}'", .{val}),
-            else => try writer.print("'{s}'", .{Repr.get(@tagName(self)).?}),
+            else => {
+                if (Repr.get(@tagName(self)) == null) {
+                    try writer.print("no representation for tag {s}", .{@tagName(self)});
+                } else try writer.print("'{s}'", .{Repr.get(@tagName(self)).?});
+            },
         }
     }
 };

@@ -8,9 +8,6 @@ const StringManager = @import("common.zig").StringManager;
 
 const MAX_FILE_BYTES = 1024 * 1024;
 
-//TODO: -l -p should write to file
-//TODO: formalize @panic messages
-
 pub fn main() !void {
     //setting stuff up
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -45,8 +42,16 @@ pub fn main() !void {
         }
         return;
     };
+    defer allocator.free(file_buffer); //eventually we can free this after the ast is done instead of after program
 
-    defer allocator.free(file_buffer);
+    const output_fd = std.fs.cwd().createFile(cli_options.output_file, .{}) catch {
+        std.log.err("Output file {s} could not be created", .{cli_options.output_file});
+        return;
+    };
+    defer output_fd.close();
+
+    var output_buffer = std.io.bufferedWriter(output_fd.writer());
+    const output_writer = output_buffer.writer();
 
     if (file_buffer.len == 0) {
         std.log.err("File {s} was found but is empty", .{cli_options.input_file});
@@ -60,8 +65,8 @@ pub fn main() !void {
 
     var l = lexing.Lexer.init(file_buffer, cli_options.input_file, &sm) orelse return;
     if (cli_options.lex_only) {
-        try print_lexer(stdout, &l);
-        try bw.flush();
+        try print_lexer(output_writer, &l);
+        try output_buffer.flush();
         return;
     }
 
@@ -71,16 +76,18 @@ pub fn main() !void {
 
     if (cli_options.parse_only) {
         for (p.top_level) |decl| {
-            try stdout.print("{any} \n", .{decl});
+            try output_writer.print("{any} \n", .{decl});
         }
-        try bw.flush();
+        try output_buffer.flush();
         return;
     }
 
     for (p.top_level) |decl| {
         try stdout.print("{any} \n", .{decl});
     }
+
     try bw.flush();
+    try output_buffer.flush();
 }
 
 //wanted to use argIterator here but i couldnt get it to work
