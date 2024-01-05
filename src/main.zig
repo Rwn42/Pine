@@ -8,6 +8,8 @@ const StringManager = @import("common.zig").StringManager;
 
 const MAX_FILE_BYTES = 1024 * 1024;
 
+//NOTE: when switching to parser_placeholder remember to free errors
+
 pub fn main() !void {
     //setting stuff up
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};

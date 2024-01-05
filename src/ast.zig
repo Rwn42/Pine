@@ -4,6 +4,33 @@ const Location = @import("common.zig").Location;
 const Token = @import("token.zig").Token;
 const TokenType = @import("token.zig").TokenType;
 
+pub const DefinedType = union(enum) {
+    Array: *ArrayType,
+    Pointer: *PointerType,
+    Basic: Token,
+
+    pub fn format(self: DefinedType, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = fmt;
+        _ = options;
+        switch (self) {
+            .Array => @panic("Not implemented"),
+            .Pointer => |pointing| {
+                try writer.print("^{s}", .{pointing.pointing_to});
+            },
+            .Basic => |tk| try writer.print("{s}", .{tk}),
+        }
+    }
+};
+
+pub const PointerType = struct {
+    pointing_to: DefinedType,
+};
+
+pub const ArrayType = struct {
+    length: usize,
+    typ: *DefinedType,
+};
+
 // Declarations
 
 pub const Declaration = union(enum) {
@@ -20,8 +47,8 @@ pub const Declaration = union(enum) {
 
                 if (decl.params) |p| try writer.print("    params: {s}\n", .{p});
 
-                if (decl.return_type_tk) |tk| {
-                    try writer.print("    return: {s}\n", .{tk.tag});
+                if (decl.return_typ) |typ| {
+                    try writer.print("    return: {s}\n", .{typ});
                 } else try writer.print("    return: unspecified\n", .{});
 
                 try writer.print("    body:\n", .{});
@@ -30,7 +57,7 @@ pub const Declaration = union(enum) {
                 }
             },
             .RecordDeclaration => |decl| {
-                try writer.print("    fields: {s}\n", .{decl.fields});
+                try writer.print("    fields: {s}\n", .{decl.fields.?});
             },
             .ConstantDeclaration => |decl| {
                 try writer.print("constant: {s} :: {s}", .{ decl.name_tk.tag, decl.value });
@@ -42,7 +69,7 @@ pub const Declaration = union(enum) {
 //name :: fn(p1: type, p2: type) optional type {body}
 pub const FunctionDeclarationNode = struct {
     name_tk: Token,
-    return_type_tk: ?Token,
+    return_typ: ?DefinedType,
     params: ?*ParamList,
     body: []Statement,
 };
@@ -50,17 +77,17 @@ pub const FunctionDeclarationNode = struct {
 //name :: record{field1: type, field2: type}
 pub const RecordDeclarationNode = struct {
     name_tk: Token,
-    fields: *ParamList,
+    fields: ?*ParamList,
 };
 
 pub const ParamList = struct {
     name_tk: Token,
-    type_tk: Token,
+    typ: DefinedType,
     next: ?*ParamList,
 
     //has a formatter because printing these recursively is cleaner then a while loop in the union
     pub fn format(self: ParamList, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-        try writer.print("{s} : {s}, ", .{ self.name_tk.tag, self.type_tk.tag });
+        try writer.print("{s} : {s}, ", .{ self.name_tk.tag, self.typ });
         if (self.next) |next| try next.format(fmt, options, writer);
     }
 };
@@ -83,13 +110,13 @@ pub const Statement = union(enum) {
 
     pub fn format(self: Statement, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         switch (self) {
-            .ExpressionStatement => |expr| try expr.format(fmt, options, writer),
+            .ExpressionStatement => |expr| try writer.print("expr statement: {s}", .{expr}),
             .ReturnStatement => |expr| {
                 try writer.print("return: {s}", .{expr});
             },
             .VariableDeclaration => |decl| {
                 try writer.print("variable declaration: {s} ", .{decl.name_tk.tag});
-                if (decl.type_tk) |typ| try writer.print("type: {s} ", .{typ.tag});
+                if (decl.typ) |typ| try writer.print("type: {s} ", .{typ});
                 if (decl.assignment) |expr| {
                     try writer.print("body: {s}", .{expr});
                 }
@@ -116,7 +143,7 @@ pub const Statement = union(enum) {
 
 pub const VariableDeclarationNode = struct {
     name_tk: Token,
-    type_tk: ?Token,
+    typ: ?DefinedType,
     assignment: ?Expression,
 };
 
