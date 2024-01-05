@@ -143,8 +143,10 @@ pub const DeclarationParser = struct {
 
         try p.expect_delimiter(.Lparen);
 
-        if (!TokenType.eq(p.peek_token.tag, .Rparen)) {
+        if (!TokenType.eq(p.token.tag, .Rparen)) {
             try parse_param_list(p, &decl.params);
+            try p.adv();
+        } else {
             try p.adv();
         }
 
@@ -198,10 +200,31 @@ pub const TypeParser = struct {
                 return .{ .Pointer = new_node };
             },
             .Lbracket => {
-                @panic("Array type not implemented!");
+                const new_node = p.new_node(AST.ArrayType);
+                const length = switch (p.token.tag) {
+                    .Integer => |length| blk: {
+                        if (length <= 0) {
+                            std.log.err("Array length must be >= 1 got {s}", .{p.token});
+                            try p.adv();
+                            return ParseError.UnexpectedToken;
+                        }
+                        try p.adv();
+                        break :blk @as(usize, @intCast(length));
+                    },
+                    else => {
+                        std.log.err("Expected array length got {s}", .{p.token});
+                        return ParseError.UnexpectedToken;
+                    },
+                };
+                _ = try p.assert_token_is(.Rbracket);
+
+                new_node.length = length;
+                new_node.element_typ = try parse(p);
+
+                return .{ .Array = new_node };
             },
             else => {
-                std.log.info("Expected a type got {t}", .{initial});
+                std.log.info("Expected a type got {s}", .{initial});
                 return ParseError.UnexpectedToken;
             },
         }
@@ -344,6 +367,13 @@ const ExpressionParser = struct {
             .String => .{ .LiteralString = p.token },
             .Hat, .ExclamationMark, .Ampersand, .Dash => try parse_prefix(p),
             .Lparen => try parse_grouped(p),
+            .Lbracket => blk: {
+                try p.adv();
+                var v: ?*AST.ExprList = null;
+                try parse_arg(p, &v, .Rbracket);
+                _ = try p.expect(.Rbracket);
+                break :blk .{ .ArrayInitialization = v.? };
+            },
             .Identifier => blk: {
                 break :blk switch (p.peek_token.tag) {
                     .Lparen => try parse_call(p),
@@ -408,13 +438,13 @@ const ExpressionParser = struct {
 
         if (TokenType.eq(p.token.tag, .Rparen)) return .{ .FunctionInvokation = expr };
 
-        try parse_arg(p, &expr.args_list);
+        try parse_arg(p, &expr.args_list, .Rparen);
         try p.adv(); //consume rparen
 
         return .{ .FunctionInvokation = expr };
     }
 
-    fn parse_arg(p: *ParserState, prev: *?*AST.ExprList) !void {
+    fn parse_arg(p: *ParserState, prev: *?*AST.ExprList, end: TokenType) !void {
         const arg = try parse_precedence(p, .Lowest);
         const new_node = p.new_node(AST.ExprList);
 
@@ -422,10 +452,10 @@ const ExpressionParser = struct {
         new_node.expr = arg;
         prev.* = new_node;
 
-        if (TokenType.eq(p.peek_token.tag, .Rparen)) return;
+        if (TokenType.eq(p.peek_token.tag, end)) return;
 
         try p.expect_delimiter(.Comma);
-        return parse_arg(p, &new_node.next);
+        return parse_arg(p, &new_node.next, end);
     }
 };
 

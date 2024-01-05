@@ -13,7 +13,9 @@ pub const DefinedType = union(enum) {
         _ = fmt;
         _ = options;
         switch (self) {
-            .Array => @panic("Not implemented"),
+            .Array => |arr| {
+                try writer.print("array of length {d} of {s}", .{ arr.length, arr.element_typ });
+            },
             .Pointer => |pointing| {
                 try writer.print("^{s}", .{pointing.pointing_to});
             },
@@ -28,7 +30,7 @@ pub const PointerType = struct {
 
 pub const ArrayType = struct {
     length: usize,
-    typ: *DefinedType,
+    element_typ: DefinedType,
 };
 
 // Declarations
@@ -170,6 +172,7 @@ pub const Expression = union(enum) {
     BinaryExpression: *BinaryExpressionNode,
     UnaryExpression: *UnaryExpressionNode,
     FunctionInvokation: *FunctionInvokationNode,
+    ArrayInitialization: *ExprList,
     LiteralInt: Token,
     LiteralFloat: Token,
     LiteralBool: Token,
@@ -198,6 +201,9 @@ pub const Expression = union(enum) {
                 try writer.print("{s} ( ", .{expr.name_tk.tag});
                 defer writer.print(")", .{}) catch {};
                 if (expr.args_list) |list| try writer.print("{s}", .{list});
+            },
+            .ArrayInitialization => |expr| {
+                try writer.print(" array init: {s}", .{expr});
             },
         }
     }
