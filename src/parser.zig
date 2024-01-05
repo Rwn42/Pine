@@ -1,6 +1,7 @@
 const std = @import("std");
 const assert = @import("std").debug.assert;
 
+const Location = @import("common.zig").Location;
 const Lexer = @import("lexer.zig").Lexer;
 const Token = @import("token.zig").Token;
 const TokenType = @import("token.zig").TokenType;
@@ -224,6 +225,14 @@ const StatementParser = struct {
                     else => return .{ .ExpressionStatement = try ExpressionParser.parse(p, .Semicolon) },
                 }
             },
+            .If => {
+                try p.adv();
+                return try parse_conditional(p, false, initial.loc);
+            },
+            .While => {
+                try p.adv();
+                return try parse_conditional(p, true, initial.loc);
+            },
             else => {
                 std.log.err("Cannot begin statement with {t}", .{initial});
                 return ParseError.UnexpectedToken;
@@ -267,6 +276,38 @@ const StatementParser = struct {
         }
 
         return .{ .VariableDeclaration = node };
+    }
+
+    fn parse_conditional(p: *ParserState, is_while: bool, start_loc: Location) ParseError!AST.Statement {
+        const condition = try ExpressionParser.parse(p, .Lbrace);
+
+        var body = std.ArrayList(AST.Statement).init(p.node_arena.allocator());
+
+        while (!TokenType.eq(p.token.tag, .Rbrace)) {
+            const s = try StatementParser.parse(p);
+            body.append(s) catch {
+                @panic("FATAL COMPILER ERROR: Out of memory");
+            };
+        }
+        _ = try p.assert_token_is(.Rbrace);
+
+        if (is_while) {
+            var node = p.new_node(AST.WhileStatementNode);
+            node.start_loc = start_loc;
+            node.condition = condition;
+            node.body = body.toOwnedSlice() catch {
+                @panic("FATAL COMPILER ERROR: Out of memory");
+            };
+            return .{ .WhileStatement = node };
+        }
+
+        var node = p.new_node(AST.IfStatementNode);
+        node.start_loc = start_loc;
+        node.condition = condition;
+        node.body = body.toOwnedSlice() catch {
+            @panic("FATAL COMPILER ERROR: Out of memory");
+        };
+        return .{ .IfStatement = node };
     }
 };
 
