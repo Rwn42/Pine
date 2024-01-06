@@ -382,8 +382,9 @@ const ExpressionParser = struct {
                 var v: ?*AST.ExprList = null;
                 try parse_arg(p, &v, .Rbracket);
                 _ = try p.expect(.Rbracket);
-                break :blk .{ .ArrayInitialization = v.? };
+                break :blk .{ .ArrayInitialization = v.? }; //TODO: fix this .? causes segfaults
             },
+            .Lbrace => try parse_record(p),
             .Identifier => blk: {
                 break :blk switch (p.peek_token.tag) {
                     .Lparen => try parse_call(p),
@@ -465,6 +466,34 @@ const ExpressionParser = struct {
 
         try p.expect_delimiter(.Comma);
         return parse_arg(p, &new_node.next, end);
+    }
+
+    fn parse_record(p: *ParserState) !AST.Expression {
+        var v: ?*AST.FieldList = null;
+        try p.adv(); //consume lbrace
+        try parse_field(p, &v);
+        try p.adv(); //consume rbrace
+
+        if (v) |node| {
+            return .{ .RecordInitialization = node };
+        }
+
+        std.log.err("record initialization must initialize fields near {s}", .{p.token});
+        return ParseError.UnexpectedToken;
+    }
+
+    fn parse_field(p: *ParserState, prev: *?*AST.FieldList) !void {
+        const new_node = p.new_node(AST.FieldList);
+
+        new_node.next = null;
+        new_node.field = try p.assert_token_is(.{ .Identifier = "" });
+        _ = try p.assert_token_is(.Colon);
+        new_node.expr = try parse_precedence(p, .Lowest);
+        prev.* = new_node;
+
+        if (TokenType.eq(p.peek_token.tag, .Rbrace)) return;
+        try p.expect_delimiter(.Comma);
+        return parse_field(p, &new_node.next);
     }
 };
 

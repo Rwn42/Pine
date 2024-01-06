@@ -51,7 +51,7 @@ Vector2 :: record {
 my_vec: Vector2 = {x: 1, b: 2};
 
 //for now array index must be an integer will change soon
-my_array: [10]int = {1, 2, 3, 4, 5, 6};
+my_array: [10]int = [1, 2, 3, 4, 5, 6];
 my_array.0 = 1;
 x: int = 5;
 x = my_array.(x); //parenthesis required for array index most of the time
