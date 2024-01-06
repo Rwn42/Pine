@@ -50,7 +50,7 @@ Vector2 :: record {
 
 my_vec: Vector2 = {x: 1, b: 2};
 
-//for now array index must be an integer will change soon
+
 my_array: [10]int = [1, 2, 3, 4, 5, 6];
 my_array.0 = 1;
 x: int = 5;
@@ -70,7 +70,7 @@ p: ^int = &(^(&y)) //& is reference ^ is dereference and for pointer types
 ## Current Goal
 get to a turing complete stage capable of printing hello, world!
 - [x] lexer
-- [ ] parser
+- [x] parser
 - [ ] ir gen
 - [ ] interpreter
 - [ ] native compiler
