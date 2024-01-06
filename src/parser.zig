@@ -13,7 +13,6 @@ const ParseError = error{
 };
 
 //TODO: skip failed parsing steps better (moving on to next token usually results in more errors anway)
-//TODO: allow array length to be identifier (so constants can specify length)
 
 pub const ParserState = struct {
     const Self = @This();
@@ -203,22 +202,12 @@ pub const TypeParser = struct {
             },
             .Lbracket => {
                 const new_node = p.new_node(AST.ArrayType);
-                const length = switch (p.token.tag) {
-                    .Integer => |length| blk: {
-                        if (length <= 0) {
-                            std.log.err("Array length must be >= 1 got {s}", .{p.token});
-                            try p.adv();
-                            return ParseError.UnexpectedToken;
-                        }
-                        try p.adv();
-                        break :blk @as(usize, @intCast(length));
-                    },
-                    else => {
-                        std.log.err("Expected array length got {s}", .{p.token});
-                        return ParseError.UnexpectedToken;
-                    },
-                };
-                _ = try p.assert_token_is(.Rbracket);
+                const length = p.token;
+                if (!(TokenType.eq(length.tag, .{ .Integer = 0 })) and !(TokenType.eq(length.tag, .{ .Identifier = "" }))) {
+                    std.log.err("array length must be an integer or constant value got {s}", .{p.token});
+                    return ParseError.UnexpectedToken;
+                }
+                try p.expect_delimiter(.Rbracket);
 
                 new_node.length = length;
                 new_node.element_typ = try parse(p);
@@ -382,7 +371,11 @@ const ExpressionParser = struct {
                 var v: ?*AST.ExprList = null;
                 try parse_arg(p, &v, .Rbracket);
                 _ = try p.expect(.Rbracket);
-                break :blk .{ .ArrayInitialization = v.? }; //TODO: fix this .? causes segfaults
+                if (v) |node| {
+                    break :blk .{ .ArrayInitialization = node };
+                }
+                std.log.err("Array intialization must contain atleast one value near {s}", .{p.token});
+                return ParseError.UnexpectedToken;
             },
             .Lbrace => try parse_record(p),
             .Identifier => blk: {

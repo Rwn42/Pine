@@ -29,7 +29,7 @@ pub const PointerType = struct {
 };
 
 pub const ArrayType = struct {
-    length: usize,
+    length: Token, //must be integer or identifier that would map to a cosntant value
     element_typ: DefinedType,
 };
 
