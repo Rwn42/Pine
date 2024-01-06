@@ -107,10 +107,7 @@ pub const Lexer = struct {
                         self.adv();
                         break :blk_inner self.lex_number(8) catch return null;
                     },
-                    else => {
-                        std.log.err("0{c} is not a valid number for base 16, 2 or 8 us 0x, 0b, or 0o {s}", .{ c, self.loc });
-                        return null;
-                    },
+                    else => .{ .Integer = 0 },
                 };
             },
 

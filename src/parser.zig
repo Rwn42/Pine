@@ -241,6 +241,9 @@ const StatementParser = struct {
             },
             .Identifier => {
                 switch (p.peek_token.tag) {
+                    .Dot => {
+                        return try parse_accesser(p);
+                    },
                     .Colon, .Equal => {
                         try p.adv();
                         return try parse_local_var(p, initial);
@@ -261,6 +264,13 @@ const StatementParser = struct {
                 return ParseError.UnexpectedToken;
             },
         }
+    }
+
+    fn parse_accesser(p: *ParserState) !AST.Statement {
+        const new_node = p.new_node(AST.AccessAssignmentNode);
+        new_node.access_side = try ExpressionParser.parse(p, .Equal);
+        new_node.assignment_side = try ExpressionParser.parse(p, .Semicolon);
+        return .{ .AccessAssignment = new_node };
     }
 
     fn parse_local_var(p: *ParserState, name_tk: Token) !AST.Statement {
@@ -354,6 +364,7 @@ const ExpressionParser = struct {
             .GreaterThanEqual,
             .DoubleEqual,
             .NotEqual,
+            .Dot,
             => true,
             else => false,
         };
@@ -377,7 +388,7 @@ const ExpressionParser = struct {
             .Identifier => blk: {
                 break :blk switch (p.peek_token.tag) {
                     .Lparen => try parse_call(p),
-                    .Dot => @panic("struct access Not Implemented"), //struct / array access
+                    //.Dot => @panic("struct access Not Implemented"), //struct / array access
                     else => .{ .IdentifierInvokation = p.token },
                 };
             },
@@ -466,6 +477,7 @@ const Precedence = enum {
     Sum,
     Product,
     Prefix,
+    Highest,
 
     fn from(typ: TokenType) usize {
         const prec: Precedence = switch (typ) {
@@ -479,6 +491,7 @@ const Precedence = enum {
             .Dash => .Sum,
             .Asterisk => .Product,
             .SlashForward => .Product,
+            .Dot => .Highest,
             else => .Lowest,
         };
         return @intFromEnum(prec);
