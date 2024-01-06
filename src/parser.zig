@@ -12,6 +12,9 @@ const ParseError = error{
     LexerError,
 };
 
+//TODO: skip failed parsing steps better (moving on to next token usually results in more errors anway)
+//TODO: allow array length to be identifier (so constants can specify length)
+
 pub const ParserState = struct {
     const Self = @This();
 
@@ -117,10 +120,8 @@ pub const DeclarationParser = struct {
         const decl = p.new_node(AST.RecordDeclarationNode);
         decl.name_tk = name_tk;
 
-        _ = try p.assert_token_is(.Lbrace);
-
+        _ = try p.expect_delimiter(.Lbrace);
         try parse_param_list(p, &decl.fields);
-
         _ = try p.assert_token_is(.Rbrace);
 
         return .{ .RecordDeclaration = decl };
@@ -181,8 +182,9 @@ pub const DeclarationParser = struct {
 
         prev.* = param;
 
-        if (TokenType.eq(p.token.tag, .Rparen)) return;
+        if (TokenType.eq(p.token.tag, .Rparen) or TokenType.eq(p.token.tag, .Rbrace)) return;
         _ = try p.assert_token_is(.Comma);
+        if (TokenType.eq(p.token.tag, .Rparen) or TokenType.eq(p.token.tag, .Rbrace)) return; //for trailing commmas
 
         return parse_param_list(p, &param.next);
     }
@@ -282,10 +284,6 @@ const StatementParser = struct {
             node.assignment = try ExpressionParser.parse(p, .Semicolon);
             return .{ .VariableAssignment = node };
         }
-        //struct / array assignment
-        if (TokenType.eq(p.token.tag, .Dot)) {
-            @panic("Not Implemented");
-        }
 
         //variable declaration
         _ = try p.assert_token_is(.Colon);
@@ -340,6 +338,7 @@ const StatementParser = struct {
         node.body = body.toOwnedSlice() catch {
             @panic("FATAL COMPILER ERROR: Out of memory");
         };
+
         return .{ .IfStatement = node };
     }
 };
@@ -388,7 +387,6 @@ const ExpressionParser = struct {
             .Identifier => blk: {
                 break :blk switch (p.peek_token.tag) {
                     .Lparen => try parse_call(p),
-                    //.Dot => @panic("struct access Not Implemented"), //struct / array access
                     else => .{ .IdentifierInvokation = p.token },
                 };
             },

@@ -59,6 +59,7 @@ pub const Declaration = union(enum) {
                 }
             },
             .RecordDeclaration => |decl| {
+                try writer.print("record {s}\n", .{decl.name_tk.tag});
                 try writer.print("    fields: {s}\n", .{decl.fields.?});
             },
             .ConstantDeclaration => |decl| {
