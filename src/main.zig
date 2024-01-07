@@ -5,7 +5,6 @@ const parsing = @import("parser.zig");
 const Token = @import("token.zig").Token;
 const TokenType = @import("token.zig").TokenType;
 const StringManager = @import("common.zig").StringManager;
-const typing = @import("typing.zig");
 const ir = @import("ir.zig");
 
 const MAX_FILE_BYTES = 1024 * 1024;
@@ -89,6 +88,16 @@ pub fn main() !void {
     var irgen = ir.IRGenerator.init(p.top_level, allocator);
     irgen.generate() catch {};
     irgen.deinit();
+    const program = irgen.program.toOwnedSlice() catch {
+        @panic("FATAL COMPILER ERROR: Out of memory");
+    };
+
+    if (cli_options.output_ir) {
+        for (program) |op| {
+            try output_writer.print("{any} \n", .{op});
+            try output_buffer.flush();
+        }
+    }
     try bw.flush();
     try output_buffer.flush();
 }
@@ -101,6 +110,7 @@ const CLIOptions = struct {
     lex_only: bool,
     parse_only: bool,
     native: bool,
+    output_ir: bool,
 
     pub const CLIError = error{
         NoInput,
@@ -116,6 +126,7 @@ const CLIOptions = struct {
             .lex_only = false,
             .parse_only = false,
             .native = false,
+            .output_ir = false,
         };
 
         opt.pos += 1; //skip program name
@@ -137,6 +148,8 @@ const CLIOptions = struct {
                 opt.parse_only = true;
             } else if (std.mem.eql(u8, "-cc", args[opt.pos])) {
                 opt.native = true;
+            } else if (std.mem.eql(u8, "-ir", args[opt.pos])) {
+                opt.output_ir = true;
             }
         }
 
@@ -151,6 +164,7 @@ fn usage(writer: anytype) !void {
     try writer.print("  -cc: compile to native code\n", .{});
     try writer.print("  -l: only perform lexical analysis (mainly for compiler debugging purposes)\n", .{});
     try writer.print("  -p: only generate the AST (mainly for compiler debugging purposes)\n", .{});
+    try writer.print("          -ir: output textual representation of intermediate representation\n", .{});
     try writer.print("ex: osmium main.os -cc -o hello.exe\n", .{});
 }
 
