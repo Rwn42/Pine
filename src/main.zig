@@ -5,6 +5,8 @@ const parsing = @import("parser.zig");
 const Token = @import("token.zig").Token;
 const TokenType = @import("token.zig").TokenType;
 const StringManager = @import("common.zig").StringManager;
+const typing = @import("typing.zig");
+const ir = @import("ir.zig");
 
 const MAX_FILE_BYTES = 1024 * 1024;
 
@@ -84,6 +86,9 @@ pub fn main() !void {
         return;
     }
 
+    var irgen = ir.IRGenerator.init(p.top_level, allocator);
+    irgen.generate() catch {};
+    irgen.deinit();
     try bw.flush();
     try output_buffer.flush();
 }

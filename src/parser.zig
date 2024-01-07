@@ -10,6 +10,7 @@ const AST = @import("ast.zig");
 const ParseError = error{
     UnexpectedToken,
     LexerError,
+    NotEnoughData,
 };
 
 //TODO: skip failed parsing steps better (moving on to next token usually results in more errors anway)
@@ -122,6 +123,11 @@ pub const DeclarationParser = struct {
         _ = try p.expect_delimiter(.Lbrace);
         try parse_param_list(p, &decl.fields);
         _ = try p.assert_token_is(.Rbrace);
+
+        if (decl.fields == null) {
+            std.log.err("Record must contain atleast one field {s}", .{name_tk});
+            return ParseError.NotEnoughData;
+        }
 
         return .{ .RecordDeclaration = decl };
     }
