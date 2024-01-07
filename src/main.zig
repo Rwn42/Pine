@@ -37,15 +37,6 @@ pub fn main() !void {
 
     //prepare buffers and string manager
 
-    const file_buffer = std.fs.cwd().readFileAlloc(allocator, cli_options.input_file, MAX_FILE_BYTES) catch |err| {
-        switch (err) {
-            error.FileTooBig => std.log.err("File {s} is to big try splitting your program into more files.", .{cli_options.input_file}),
-            else => std.log.err("File {s} was not found.", .{cli_options.input_file}),
-        }
-        return;
-    };
-    defer allocator.free(file_buffer); //eventually we can free this after the ast is done instead of after program
-
     const output_fd = std.fs.cwd().createFile(cli_options.output_file, .{}) catch {
         std.log.err("Output file {s} could not be created", .{cli_options.output_file});
         return;
@@ -57,13 +48,22 @@ pub fn main() !void {
 
     errdefer output_buffer.flush() catch {};
 
+    var sm = StringManager.init(allocator);
+    defer sm.destroy();
+
+    const file_buffer = std.fs.cwd().readFileAlloc(allocator, cli_options.input_file, MAX_FILE_BYTES) catch |err| {
+        switch (err) {
+            error.FileTooBig => std.log.err("File {s} is to big try splitting your program into more files.", .{cli_options.input_file}),
+            else => std.log.err("File {s} was not found.", .{cli_options.input_file}),
+        }
+        return;
+    };
+    defer allocator.free(file_buffer); //eventually we can free this after the ast is done instead of after program
+
     if (file_buffer.len == 0) {
         std.log.err("File {s} was found but is empty", .{cli_options.input_file});
         return;
     }
-
-    var sm = StringManager.init(allocator);
-    defer sm.destroy();
 
     //compilation begins here
 
@@ -82,10 +82,6 @@ pub fn main() !void {
         try print_parser(output_writer, &p);
         try output_buffer.flush();
         return;
-    }
-
-    for (p.top_level) |decl| {
-        try stdout.print("{any} \n", .{decl});
     }
 
     try bw.flush();
