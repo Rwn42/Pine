@@ -114,9 +114,9 @@ pub const TokenType = union(enum) {
         _ = fmt;
 
         switch (self) {
-            .Identifier, .String => |val| try writer.print("'{s}'", .{val}),
-            .Integer => |val| try writer.print("'{d}'", .{val}),
-            .Float => |val| try writer.print("'{d}'", .{val}),
+            .Identifier, .String => try writer.print("Identifier", .{}),
+            .Integer => try writer.print("Integer", .{}),
+            .Float => try writer.print("Float", .{}),
             else => {
                 if (Repr.get(@tagName(self)) == null) {
                     try writer.print("no representation for tag {s}", .{@tagName(self)});
@@ -133,7 +133,16 @@ pub const Token = struct {
     pub fn format(self: Token, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = fmt;
         _ = options;
-        try writer.print("{s}", .{self.tag});
+        switch (self.tag) {
+            .Identifier, .String => |val| try writer.print("'{s}'", .{val}),
+            .Integer => |val| try writer.print("'{d}'", .{val}),
+            .Float => |val| try writer.print("'{d}'", .{val}),
+            else => {
+                if (TokenType.Repr.get(@tagName(self.tag)) == null) {
+                    try writer.print("no representation for tag {s}", .{@tagName(self.tag)});
+                } else try writer.print("'{s}'", .{TokenType.Repr.get(@tagName(self.tag)).?});
+            },
+        }
         try writer.print(" {s}", .{self.loc});
     }
 };
