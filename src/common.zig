@@ -46,3 +46,44 @@ pub const StringManager = struct {
         s.arena.deinit();
     }
 };
+
+//general purpose stack
+pub fn Stack(comptime T: type, comptime limit: usize) type {
+    return struct {
+        const Self = @This();
+
+        sp: usize,
+        buffer: [limit]T,
+
+        pub fn init() Self {
+            return .{
+                .sp = 0,
+                .buffer = undefined,
+            };
+        }
+
+        fn push(self: *Self, value: T) void {
+            if (self.sp >= limit - 1) {
+                @panic("FATAL COMPILER ERROR: Stack Overflow");
+            }
+            self.buffer[self.sp] = value;
+            self.sp += 1;
+        }
+
+        fn pop(self: *Self) void {
+            if (self.sp <= 0) {
+                @panic("FATAL COMPILER ERROR: Stack Underflow");
+            }
+            self.sp -= 1;
+        }
+
+        fn top(self: *Self) T {
+            return self.buffer[self.sp - 1];
+        }
+
+        fn get(self: *Self, idx: usize) T {
+            if (idx < 0 or idx >= limit) @panic("Out of bounds access");
+            return self.buffer[idx];
+        }
+    };
+}

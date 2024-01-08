@@ -87,10 +87,11 @@ pub fn main() !void {
 
     var irgen = ir.IRGenerator.init(p.top_level, allocator);
     irgen.generate() catch {};
-    irgen.deinit();
+    //irgen.deinit();
     const program = irgen.program.toOwnedSlice() catch {
         @panic("FATAL COMPILER ERROR: Out of memory");
     };
+    defer allocator.free(program);
 
     if (cli_options.output_ir) {
         for (program) |op| {

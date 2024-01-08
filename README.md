@@ -9,7 +9,7 @@ For now, only three things can be outside of functions
 ```odin
 some_const :: 42; //must be comptime known and is immutable
 
-//return type is technically optional but type inference is not implemented yet.
+//return type is nessecary for now
 some_function :: fn(x: int) int { ... }
 
 some_record :: record { //like structs in C

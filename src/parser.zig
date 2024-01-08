@@ -145,7 +145,7 @@ pub const DeclarationParser = struct {
 
         decl.name_tk = name_tk;
         decl.params = null;
-        decl.return_typ = null;
+        decl.return_typ = undefined;
 
         try p.expect_delimiter(.Lparen);
 
@@ -156,9 +156,7 @@ pub const DeclarationParser = struct {
             try p.adv();
         }
 
-        if (!TokenType.eq(p.token.tag, .Lbrace)) {
-            decl.return_typ = try TypeParser.parse(p);
-        }
+        decl.return_typ = try TypeParser.parse(p);
 
         _ = try p.assert_token_is(.Lbrace);
 

@@ -49,9 +49,7 @@ pub const Declaration = union(enum) {
 
                 if (decl.params) |p| try writer.print("    params: {s}\n", .{p});
 
-                if (decl.return_typ) |typ| {
-                    try writer.print("    return: {s}\n", .{typ});
-                } else try writer.print("    return: unspecified\n", .{});
+                try writer.print("    return: {s}\n", .{decl.return_typ});
 
                 try writer.print("    body:\n", .{});
                 for (decl.body) |s| {
@@ -72,7 +70,7 @@ pub const Declaration = union(enum) {
 //name :: fn(p1: type, p2: type) optional type {body}
 pub const FunctionDeclarationNode = struct {
     name_tk: Token,
-    return_typ: ?DefinedType,
+    return_typ: DefinedType,
     params: ?*ParamList,
     body: []Statement,
 };
