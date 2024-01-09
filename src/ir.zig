@@ -16,7 +16,7 @@ const Operation = struct {
         add_f,
         mul_i,
         mul_f,
-        le,
+        lt,
         lte,
         eq,
         not,
@@ -46,13 +46,13 @@ pub const IRError = error{
 
 pub const IRGenerator = struct {
     const VarInfo = struct {
-        type_info: *typing.TypeInfo,
+        type_info: typing.TypeInfo,
         stack_loc: u64,
     };
     const Scope = std.StringHashMap(VarInfo);
     const Self = @This();
 
-    sp: usize, //stack memory pointer will reset to 0 for each different func call
+    stack_pointer: usize, //stack memory pointer will reset to 0 for each different func call
     scopes: Stack(*Scope, 32), //global scope + function scope + 30 nested blocks seems good enough
     declarations: []AST.Declaration,
     allocator: std.mem.Allocator,
@@ -61,7 +61,7 @@ pub const IRGenerator = struct {
 
     pub fn init(declarations: []AST.Declaration, allocator: std.mem.Allocator) Self {
         return .{
-            .sp = 0,
+            .stack_pointer = 0,
             .scopes = Stack(*Scope, 32).init(),
             .declarations = declarations,
             .allocator = allocator,
@@ -78,6 +78,23 @@ pub const IRGenerator = struct {
                 },
                 .FunctionDeclaration => |f_decl| {
                     try self.tm.register_function(f_decl);
+
+                    //open the function scope
+                    var function_scope = Scope.init(self.allocator);
+                    self.stack_pointer = 0;
+                    self.scopes.push(&function_scope);
+                    defer self.scopes.pop();
+                    defer function_scope.deinit();
+
+                    //NOTE: body begins here may be needed in the future
+
+                    var param_n = f_decl.params;
+                    while (param_n) |param| {
+                        const type_info = try self.register_var_decl(param.name_tk, param.typ);
+                        //call a store here becuase param value should be on operand stack from func call expression
+                        self.program_append(if (type_info.size == 8) .store_8 else .store_64, null);
+                        param_n = param.next;
+                    }
                 },
                 .ConstantDeclaration => |c_decl| {
                     _ = c_decl;
@@ -85,6 +102,30 @@ pub const IRGenerator = struct {
                 },
             }
         }
+    }
+
+    //does not generate any instructions just adds it to the scope
+    fn register_var_decl(self: *Self, name_tk: Token, dt: AST.DefinedType) !typing.TypeInfo {
+        const typ = try self.tm.generate(dt);
+        if (self.scopes.top().contains(name_tk.tag.Identifier)) {
+            std.log.err("Duplicate definition of identifier {s}", .{name_tk});
+            return IRError.DuplicateDefinition;
+        }
+        self.scopes.top().put(name_tk.tag.Identifier, .{
+            .type_info = typ,
+            .stack_loc = self.stack_pointer,
+        }) catch {
+            @panic("FATAL COMPILER ERROR: Out of memory");
+        };
+        self.stack_pointer += typ.size;
+
+        return typ;
+    }
+
+    fn program_append(self: *Self, opc: Operation.Opcode, ope: ?u64) void {
+        self.program.append(.{ .opc = opc, .operand = ope }) catch {
+            @panic("FATAL COMPILER ERROR: Out of memory");
+        };
     }
 
     pub fn deinit(self: *Self) void {

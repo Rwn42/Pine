@@ -6,10 +6,10 @@ const IRError = @import("ir.zig").IRError;
 const IdTypeMap = std.StringHashMap(TypeInfo);
 
 pub const Primitive = std.ComptimeStringMap(TypeInfo, .{
-    .{ "int", .{ .size = 8, .tag = .Integer, .child = null } },
-    .{ "float", .{ .size = 8, .tag = .Float, .child = null } },
-    .{ "bool", .{ .size = 1, .tag = .Bool, .child = null } },
-    .{ "byte", .{ .size = 1, .tag = .Byte, .child = null } },
+    .{ "int", .{ .size = 64, .tag = .Integer, .child = null } },
+    .{ "float", .{ .size = 64, .tag = .Float, .child = null } },
+    .{ "bool", .{ .size = 8, .tag = .Bool, .child = null } },
+    .{ "byte", .{ .size = 8, .tag = .Byte, .child = null } },
 });
 
 pub const TypeTag = enum {
@@ -58,7 +58,7 @@ pub const TypeManager = struct {
                 var child = self.new_info();
                 child.* = try self.generate(p.pointing_to);
                 break :blk .{
-                    .size = 8,
+                    .size = 64,
                     .tag = .Pointer,
                     .child = .{ .type_info = child },
                 };

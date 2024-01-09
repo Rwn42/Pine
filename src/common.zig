@@ -62,7 +62,7 @@ pub fn Stack(comptime T: type, comptime limit: usize) type {
             };
         }
 
-        fn push(self: *Self, value: T) void {
+        pub fn push(self: *Self, value: T) void {
             if (self.sp >= limit - 1) {
                 @panic("FATAL COMPILER ERROR: Stack Overflow");
             }
@@ -70,18 +70,18 @@ pub fn Stack(comptime T: type, comptime limit: usize) type {
             self.sp += 1;
         }
 
-        fn pop(self: *Self) void {
+        pub fn pop(self: *Self) void {
             if (self.sp <= 0) {
                 @panic("FATAL COMPILER ERROR: Stack Underflow");
             }
             self.sp -= 1;
         }
 
-        fn top(self: *Self) T {
+        pub fn top(self: *Self) T {
             return self.buffer[self.sp - 1];
         }
 
-        fn get(self: *Self, idx: usize) T {
+        pub fn get(self: *Self, idx: usize) T {
             if (idx < 0 or idx >= limit) @panic("Out of bounds access");
             return self.buffer[idx];
         }
