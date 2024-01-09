@@ -86,6 +86,10 @@ pub const IRGenerator = struct {
             }
         }
     }
+
+    pub fn deinit(self: *Self) void {
+        self.tm.deinit();
+    }
 };
 
 //  pub fn generate(self: *Self) !void {

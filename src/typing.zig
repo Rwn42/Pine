@@ -43,10 +43,10 @@ pub const TypeManager = struct {
     pub fn deinit(self: *Self) void {
         self.arena.deinit();
         self.records.deinit();
-        self.procedures.deinit();
+        self.functions.deinit();
     }
 
-    pub fn generate(self: Self, dt: AST.DefinedType) !TypeInfo {
+    pub fn generate(self: *Self, dt: AST.DefinedType) !TypeInfo {
         return switch (dt) {
             .Basic => |typ| {
                 if (Primitive.get(typ.tag.Identifier)) |info| return info;
@@ -54,10 +54,14 @@ pub const TypeManager = struct {
                 std.log.err("Undeclared type {t}", .{typ});
                 return IRError.Undeclared;
             },
-            .Pointer => |p| .{
-                .size = 8,
-                .tag = .Pointer,
-                .child = self.generate(p.pointing_to),
+            .Pointer => |p| blk: {
+                var child = self.new_info();
+                child.* = try self.generate(p.pointing_to);
+                break :blk .{
+                    .size = 8,
+                    .tag = .Pointer,
+                    .child = .{ .type_info = child },
+                };
             },
             else => @panic("Array Not Implemented"),
         };
@@ -75,6 +79,12 @@ pub const TypeManager = struct {
         }
         const ret_type_info = try self.generate(decl.return_typ);
         self.functions.put(decl.name_tk.tag.Identifier, ret_type_info) catch {
+            @panic("FATAL COMPILER ERROR: Out of memory");
+        };
+    }
+
+    fn new_info(self: *Self) *TypeInfo {
+        return self.arena.allocator().create(TypeInfo) catch {
             @panic("FATAL COMPILER ERROR: Out of memory");
         };
     }
