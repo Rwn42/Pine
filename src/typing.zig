@@ -3,6 +3,9 @@ const std = @import("std");
 const AST = @import("ast.zig");
 const IRError = @import("ir.zig").IRError;
 
+const TokenType = @import("token.zig").TokenType;
+const Token = @import("token.zig").Token;
+
 const IdTypeMap = std.StringHashMap(TypeInfo);
 
 pub const Primitive = std.ComptimeStringMap(TypeInfo, .{
@@ -23,7 +26,12 @@ pub const TypeTag = enum {
     String,
 };
 
-const FieldInfo = struct { nothing: ?u8 };
+const FieldInfo = struct {
+    identifier: Token,
+    type_info: TypeInfo,
+    offset: usize,
+    next: ?*FieldInfo,
+};
 
 pub const TypeManager = struct {
     const Self = @This();
@@ -63,13 +71,55 @@ pub const TypeManager = struct {
                     .child = .{ .type_info = child },
                 };
             },
-            else => @panic("Array Not Implemented"),
+            .Array => |arr| blk: {
+                if (!TokenType.eq(arr.length.tag, .{ .Integer = 0 })) @panic("Const array lenght not implemented");
+                var child = self.new_info();
+                child.* = try self.generate(arr.element_typ);
+                break :blk .{
+                    .size = child.size * @as(usize, @intCast(arr.length.tag.Integer)),
+                    .tag = .Array,
+                    .child = .{ .type_info = child },
+                };
+            },
         };
     }
 
     pub fn register_record(self: *Self, decl: *AST.RecordDeclarationNode) !void {
-        _ = self; // autofix
-        _ = decl; // autofix
+        var record = TypeInfo{
+            .size = undefined,
+            .child = .{ .field_info = null },
+            .tag = .Record,
+        };
+
+        var cur_offset: usize = 0;
+        var dt_field = decl.fields;
+        var prev: *?*FieldInfo = &record.child.?.field_info;
+        while (dt_field) |field| {
+            const field_type = try self.generate(field.typ);
+            record.size += field_type.size;
+
+            const new_field_info = self.arena.allocator().create(FieldInfo) catch {
+                @panic("FATAL COMPILER ERROR: Out of memory");
+            };
+
+            new_field_info.type_info = field_type;
+            new_field_info.offset = cur_offset;
+            new_field_info.identifier = field.name_tk;
+            new_field_info.next = null;
+
+            prev.* = new_field_info;
+
+            cur_offset += field_type.size;
+            dt_field = field.next;
+        }
+
+        if (self.records.contains(decl.name_tk.tag.Identifier)) {
+            std.log.err("Duplicate record definition {s}", .{decl.name_tk});
+            return IRError.DuplicateDefinition;
+        }
+        self.records.put(decl.name_tk.tag.Identifier, record) catch {
+            @panic("FATAL COMPILER ERROR: Out of memory!");
+        };
     }
 
     pub fn register_function(self: *Self, decl: *AST.FunctionDeclarationNode) !void {
@@ -92,7 +142,7 @@ pub const TypeManager = struct {
 
 pub const TypeInfo = struct {
     const Child = union {
-        feild_info: FieldInfo,
+        field_info: ?*FieldInfo,
         type_info: *TypeInfo,
     };
 

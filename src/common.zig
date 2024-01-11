@@ -81,6 +81,10 @@ pub fn Stack(comptime T: type, comptime limit: usize) type {
             return self.buffer[self.sp - 1];
         }
 
+        pub fn top_idx(self: *Self) usize {
+            return self.sp - 1;
+        }
+
         pub fn get(self: *Self, idx: usize) T {
             if (idx < 0 or idx >= limit) @panic("Out of bounds access");
             return self.buffer[idx];

@@ -6,12 +6,15 @@ const AST = @import("ast.zig");
 const typing = @import("typing.zig");
 const Stack = @import("common.zig").Stack;
 
+//TODO: deal with storing structs ie multiple store instructions
+
 const Operation = struct {
     const Opcode = enum(u8) {
-        load_8,
-        load_64,
-        store_8,
-        store_64,
+        load_8, //NOTE: operand is the stack location to load from
+        load_64, //NOTE: operand is the stack location to load from
+        store_8, //NOTE: operand is the stack location to store to
+        store_64, //NOTE: operand is the stack location to store to
+        push, //NOTE: operand is 8 byte number which is the data to push
         add_i,
         add_f,
         mul_i,
@@ -90,10 +93,13 @@ pub const IRGenerator = struct {
 
                     var param_n = f_decl.params;
                     while (param_n) |param| {
-                        const type_info = try self.register_var_decl(param.name_tk, param.typ);
-                        //call a store here becuase param value should be on operand stack from func call expression
-                        self.program_append(if (type_info.size == 8) .store_8 else .store_64, null);
+                        const info = try self.register_var_decl(param.name_tk, param.typ);
+                        try self.generate_stack_store(info);
                         param_n = param.next;
+                    }
+
+                    for (f_decl.body) |stmt| {
+                        try self.generate_statement(stmt);
                     }
                 },
                 .ConstantDeclaration => |c_decl| {
@@ -104,8 +110,59 @@ pub const IRGenerator = struct {
         }
     }
 
+    fn generate_statement(self: *Self, input_stmt: AST.Statement) !void {
+        switch (input_stmt) {
+            .ReturnStatement => |stmt| {
+                try self.generate_expression(stmt);
+                self.program_append(.ret, null);
+            },
+            .VariableDeclaration => |stmt| {
+                if (stmt.typ == null) @panic("type inference (:=) not implemented");
+                const info = try self.register_var_decl(stmt.name_tk, stmt.typ.?);
+                if (stmt.assignment) |assignment| {
+                    try self.generate_expression(assignment);
+                    try self.generate_stack_store(info);
+                }
+            },
+            else => @panic("not implemented"),
+        }
+    }
+
+    fn generate_expression(self: *Self, input_expr: AST.Expression) !void {
+        switch (input_expr) {
+            .IdentifierInvokation => |id_tk| {
+                const id_info = try self.find_identifier(id_tk, self.scopes.top_idx());
+                if (id_info.type_info.size != 8 and id_info.type_info.size != 64) {
+                    std.log.err("Cannot use identifier {s} of size {d} bits in expression", .{
+                        id_tk,
+                        id_info.type_info.size,
+                    });
+                }
+                self.program_append(if (id_info.type_info.size == 8) .load_8 else .load_64, id_info.stack_loc);
+            },
+            .ArrayInitialization => |list| {
+                var node: ?*AST.ExprList = list;
+                while (node) |node_val| {
+                    try self.generate_expression(node_val.expr);
+                    node = node_val.next;
+                }
+            },
+            else => @panic("not implemented"),
+        }
+    }
+
+    fn find_identifier(self: *Self, identifier_tk: Token, idx: usize) !VarInfo {
+        const identifier = identifier_tk.tag.Identifier;
+        if (self.scopes.get(idx).get(identifier)) |info| return info;
+        if (idx == 0) {
+            std.log.err("No variable declared for identifier {s}", .{identifier_tk});
+            return IRError.Undeclared;
+        }
+        return try self.find_identifier(identifier_tk, idx - 1);
+    }
+
     //does not generate any instructions just adds it to the scope
-    fn register_var_decl(self: *Self, name_tk: Token, dt: AST.DefinedType) !typing.TypeInfo {
+    fn register_var_decl(self: *Self, name_tk: Token, dt: AST.DefinedType) !VarInfo {
         const typ = try self.tm.generate(dt);
         if (self.scopes.top().contains(name_tk.tag.Identifier)) {
             std.log.err("Duplicate definition of identifier {s}", .{name_tk});
@@ -117,9 +174,28 @@ pub const IRGenerator = struct {
         }) catch {
             @panic("FATAL COMPILER ERROR: Out of memory");
         };
-        self.stack_pointer += typ.size;
+        self.stack_pointer += typ.size / 8;
 
-        return typ;
+        return self.scopes.top().get(name_tk.tag.Identifier).?;
+    }
+    //if not load then store
+    fn generate_stack_store(self: *Self, info: VarInfo) !void {
+        const type_info = info.type_info;
+        if (type_info.tag != .Record and type_info.tag != .Array) {
+            self.program_append(if (type_info.size == 8) .store_8 else .store_64, info.stack_loc);
+            return;
+        }
+        if (type_info.tag == .Array) {
+            const element_type = type_info.child.?.type_info;
+            const length = type_info.size / element_type.size;
+
+            for (0..length) |i| {
+                self.program_append(if (element_type.size == 8) .store_8 else .store_64, info.stack_loc + i * (element_type.size / 8));
+            }
+
+            return;
+        }
+        @panic("Record not implemented");
     }
 
     fn program_append(self: *Self, opc: Operation.Opcode, ope: ?u64) void {
