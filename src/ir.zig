@@ -195,7 +195,17 @@ pub const IRGenerator = struct {
 
             return;
         }
-        @panic("Record not implemented");
+
+        //record store
+        var it = info.type_info.child.?.field_info.iterator();
+        while (it.next()) |entry| {
+            const field = entry.value_ptr;
+            if (field.type_info.size != 8 and field.type_info.size != 64) {
+                try self.generate_stack_store(.{ .stack_loc = info.stack_loc + field.offset, .type_info = field.type_info });
+            } else {
+                self.program_append(if (field.type_info.size == 8) .store_8 else .store_64, info.stack_loc + field.offset);
+            }
+        }
     }
 
     fn program_append(self: *Self, opc: Operation.Opcode, ope: ?u64) void {

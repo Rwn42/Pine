@@ -26,12 +26,12 @@ pub const TypeTag = enum {
     String,
 };
 
-const FieldInfo = struct {
-    identifier: Token,
+const FieldInfoStruct = struct {
     type_info: TypeInfo,
     offset: usize,
-    next: ?*FieldInfo,
 };
+
+const FieldInfo = std.StringArrayHashMap(FieldInfoStruct);
 
 pub const TypeManager = struct {
     const Self = @This();
@@ -85,32 +85,34 @@ pub const TypeManager = struct {
     }
 
     pub fn register_record(self: *Self, decl: *AST.RecordDeclarationNode) !void {
+        const map = self.arena.allocator().create(FieldInfo) catch {
+            @panic("FATAL COMPILER ERROR: Out of memory");
+        };
+        map.* = FieldInfo.init(self.arena.allocator());
         var record = TypeInfo{
-            .size = undefined,
-            .child = .{ .field_info = null },
+            .size = 0,
+            .child = .{ .field_info = map },
             .tag = .Record,
         };
 
         var cur_offset: usize = 0;
-        var dt_field = decl.fields;
-        var prev: *?*FieldInfo = &record.child.?.field_info;
-        while (dt_field) |field| {
-            const field_type = try self.generate(field.typ);
-            record.size += field_type.size;
 
-            const new_field_info = self.arena.allocator().create(FieldInfo) catch {
+        var ast_field_o = decl.fields;
+        while (ast_field_o) |ast_field| {
+            const field_ti = try self.generate(ast_field.typ);
+            record.size += field_ti.size;
+
+            const new_fieldinfo = FieldInfoStruct{
+                .offset = cur_offset,
+                .type_info = field_ti,
+            };
+
+            map.put(ast_field.name_tk.tag.Identifier, new_fieldinfo) catch {
                 @panic("FATAL COMPILER ERROR: Out of memory");
             };
 
-            new_field_info.type_info = field_type;
-            new_field_info.offset = cur_offset;
-            new_field_info.identifier = field.name_tk;
-            new_field_info.next = null;
-
-            prev.* = new_field_info;
-
-            cur_offset += field_type.size;
-            dt_field = field.next;
+            cur_offset += field_ti.size / 8;
+            ast_field_o = ast_field.next;
         }
 
         if (self.records.contains(decl.name_tk.tag.Identifier)) {
@@ -142,7 +144,7 @@ pub const TypeManager = struct {
 
 pub const TypeInfo = struct {
     const Child = union {
-        field_info: ?*FieldInfo,
+        field_info: *FieldInfo,
         type_info: *TypeInfo,
     };
 
