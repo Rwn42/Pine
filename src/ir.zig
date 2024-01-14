@@ -6,7 +6,9 @@ const AST = @import("ast.zig");
 const typing = @import("typing.zig");
 const Stack = @import("common.zig").Stack;
 
-//TODO: deal with storing structs ie multiple store instructions
+//TODO: Record initialization
+//TODO: array access
+//TODO: record access (nested included) no deref yet
 
 const Operation = struct {
     const Opcode = enum(u8) {
@@ -74,14 +76,33 @@ pub const IRGenerator = struct {
     }
 
     pub fn generate(self: *Self) !void {
+        //first loop skips all the bodies and deals with the declaration
+        //basically creating a "header file" in memory
+        for (self.declarations) |decl| {
+            switch (decl) {
+                .RecordDeclaration => |r_decl| {
+                    if (self.tm.records.contains(r_decl.name_tk.tag.Identifier)) {
+                        std.log.err("Duplicate record definition {s}", .{r_decl.name_tk});
+                        return IRError.DuplicateDefinition;
+                    }
+                    self.tm.records.put(r_decl.name_tk.tag.Identifier, undefined) catch {
+                        @panic("FATAL COMPILER ERROR: Out of memory!");
+                    };
+                },
+                .FunctionDeclaration => |f_decl| {
+                    try self.tm.register_function(f_decl);
+                },
+                else => {},
+            }
+        }
+
+        //deal with the bodies
         for (self.declarations) |decl| {
             switch (decl) {
                 .RecordDeclaration => |r_decl| {
                     try self.tm.register_record(r_decl);
                 },
                 .FunctionDeclaration => |f_decl| {
-                    try self.tm.register_function(f_decl);
-
                     //open the function scope
                     var function_scope = Scope.init(self.allocator);
                     self.stack_pointer = 0;
@@ -133,9 +154,9 @@ pub const IRGenerator = struct {
             .IdentifierInvokation => |id_tk| {
                 const id_info = try self.find_identifier(id_tk, self.scopes.top_idx());
                 if (id_info.type_info.size != 8 and id_info.type_info.size != 64) {
-                    std.log.err("Cannot use identifier {s} of size {d} bits in expression", .{
+                    std.log.err("Cannot use identifier {s} of size {d} bytes in expression", .{
                         id_tk,
-                        id_info.type_info.size,
+                        id_info.type_info.size / 8,
                     });
                 }
                 self.program_append(if (id_info.type_info.size == 8) .load_8 else .load_64, id_info.stack_loc);
@@ -144,6 +165,12 @@ pub const IRGenerator = struct {
                 var node: ?*AST.ExprList = list;
                 while (node) |node_val| {
                     try self.generate_expression(node_val.expr);
+                    node = node_val.next;
+                }
+            },
+            .RecordInitialization => |list| {
+                var node: ?*AST.FieldList = list;
+                while (node) |node_val| {
                     node = node_val.next;
                 }
             },

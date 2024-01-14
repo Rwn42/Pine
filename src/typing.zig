@@ -8,6 +8,8 @@ const Token = @import("token.zig").Token;
 
 const IdTypeMap = std.StringHashMap(TypeInfo);
 
+//TODO: Recursive Records
+
 pub const Primitive = std.ComptimeStringMap(TypeInfo, .{
     .{ "int", .{ .size = 64, .tag = .Integer, .child = null } },
     .{ "float", .{ .size = 64, .tag = .Float, .child = null } },
@@ -99,6 +101,15 @@ pub const TypeManager = struct {
 
         var ast_field_o = decl.fields;
         while (ast_field_o) |ast_field| {
+            switch (ast_field.typ) {
+                .Basic => |tk| {
+                    if (std.mem.eql(u8, tk.tag.Identifier, decl.name_tk.tag.Identifier)) {
+                        std.log.err("Recursive data structure defined here {s}", .{tk});
+                        return IRError.DuplicateDefinition;
+                    }
+                },
+                else => {},
+            }
             const field_ti = try self.generate(ast_field.typ);
             record.size += field_ti.size;
 
@@ -115,10 +126,6 @@ pub const TypeManager = struct {
             ast_field_o = ast_field.next;
         }
 
-        if (self.records.contains(decl.name_tk.tag.Identifier)) {
-            std.log.err("Duplicate record definition {s}", .{decl.name_tk});
-            return IRError.DuplicateDefinition;
-        }
         self.records.put(decl.name_tk.tag.Identifier, record) catch {
             @panic("FATAL COMPILER ERROR: Out of memory!");
         };
