@@ -169,7 +169,7 @@ pub const IRGenerator = struct {
                 }
             },
             .RecordInitialization => |list| {
-                var node: ?*AST.FieldList = list;
+                var node: ?*AST.FieldList = list.fields;
                 while (node) |node_val| {
                     node = node_val.next;
                 }

@@ -181,7 +181,7 @@ pub const Expression = union(enum) {
     UnaryExpression: *UnaryExpressionNode,
     FunctionInvokation: *FunctionInvokationNode,
     ArrayInitialization: *ExprList,
-    RecordInitialization: *FieldList,
+    RecordInitialization: *RecordInitializationNode,
     LiteralInt: Token,
     LiteralFloat: Token,
     LiteralBool: Token,
@@ -215,7 +215,7 @@ pub const Expression = union(enum) {
                 try writer.print(" array init: {s}", .{expr});
             },
             .RecordInitialization => |expr| {
-                try writer.print("record init: {s}", .{expr});
+                try writer.print("record init: type {s},  {s}", .{ expr.name_tk, expr.fields });
             },
         }
     }
@@ -248,6 +248,11 @@ pub const ExprList = struct {
         try writer.print("{s}, ", .{self.expr});
         if (self.next) |next| try next.format(fmt, options, writer);
     }
+};
+
+pub const RecordInitializationNode = struct {
+    name_tk: Token,
+    fields: *FieldList,
 };
 
 pub const FieldList = struct {

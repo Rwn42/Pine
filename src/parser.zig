@@ -381,10 +381,10 @@ const ExpressionParser = struct {
                 std.log.err("Array intialization must contain atleast one value near {s}", .{p.token});
                 return ParseError.UnexpectedToken;
             },
-            .Lbrace => try parse_record(p),
             .Identifier => blk: {
                 break :blk switch (p.peek_token.tag) {
                     .Lparen => try parse_call(p),
+                    .Lbrace => try parse_record(p),
                     else => .{ .IdentifierInvokation = p.token },
                 };
             },
@@ -466,13 +466,17 @@ const ExpressionParser = struct {
     }
 
     fn parse_record(p: *ParserState) !AST.Expression {
+        const name = try p.assert_token_is(.{ .Identifier = "" });
         var v: ?*AST.FieldList = null;
         try p.adv(); //consume lbrace
         try parse_field(p, &v);
         try p.adv(); //consume rbrace
 
+        const new_node = p.new_node(AST.RecordInitializationNode);
+        new_node.name_tk = name;
         if (v) |node| {
-            return .{ .RecordInitialization = node };
+            new_node.fields = node;
+            return .{ .RecordInitialization = new_node };
         }
 
         std.log.err("record initialization must initialize fields near {s}", .{p.token});

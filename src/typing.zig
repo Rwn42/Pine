@@ -8,13 +8,12 @@ const Token = @import("token.zig").Token;
 
 const IdTypeMap = std.StringHashMap(TypeInfo);
 
-//TODO: Recursive Records
-
 pub const Primitive = std.ComptimeStringMap(TypeInfo, .{
     .{ "int", .{ .size = 64, .tag = .Integer, .child = null } },
     .{ "float", .{ .size = 64, .tag = .Float, .child = null } },
     .{ "bool", .{ .size = 8, .tag = .Bool, .child = null } },
     .{ "byte", .{ .size = 8, .tag = .Byte, .child = null } },
+    .{ "void", .{ .size = 0, .tag = .Void, .child = null } },
 });
 
 pub const TypeTag = enum {
@@ -26,6 +25,7 @@ pub const TypeTag = enum {
     Float,
     Bool,
     String,
+    Void,
 };
 
 const FieldInfoStruct = struct {
