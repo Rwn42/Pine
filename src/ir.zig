@@ -168,10 +168,25 @@ pub const IRGenerator = struct {
                     node = node_val.next;
                 }
             },
-            .RecordInitialization => |list| {
-                var node: ?*AST.FieldList = list.fields;
-                while (node) |node_val| {
-                    node = node_val.next;
+            .RecordInitialization => |r| {
+                const info = self.tm.records.get(r.name_tk.tag.Identifier) orelse {
+                    std.log.err("Undeclared record type {s}", .{r.name_tk});
+                    return IRError.Undeclared;
+                };
+
+                //incredibly naive solution ast should store fields in a map
+                //linked list is awful for this
+                //for each field in the record it iterates the whole
+                //record initialization node
+                outer: for (info.child.?.field_info.keys()) |key| {
+                    var node: ?*AST.FieldList = r.fields;
+                    while (node) |node_val| {
+                        if (std.mem.eql(u8, key, node_val.field.tag.Identifier)) {
+                            try self.generate_expression(node_val.expr);
+                            continue :outer;
+                        }
+                        node = node_val.next;
+                    }
                 }
             },
             else => @panic("not implemented"),
@@ -205,7 +220,7 @@ pub const IRGenerator = struct {
 
         return self.scopes.top().get(name_tk.tag.Identifier).?;
     }
-    //if not load then store
+
     fn generate_stack_store(self: *Self, info: VarInfo) !void {
         const type_info = info.type_info;
         if (type_info.tag != .Record and type_info.tag != .Array) {
