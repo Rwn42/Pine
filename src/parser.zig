@@ -411,7 +411,17 @@ const ExpressionParser = struct {
 
         const prec = Precedence.from(p.token.tag);
         try p.adv();
-        expr.rhs = try parse_precedence(p, @enumFromInt(prec));
+
+        //dot is right associative subtracting 1 from the precedence seems to work for that
+        if (TokenType.eq(expr.op.tag, .Dot)) {
+            expr.rhs = try parse_precedence(p, @enumFromInt(prec - 1));
+        } else {
+            expr.rhs = try parse_precedence(p, @enumFromInt(prec));
+        }
+
+        if (TokenType.eq(expr.op.tag, .Dot)) {
+            return .{ .AccessExpression = expr };
+        }
 
         return .{ .BinaryExpression = expr };
     }
