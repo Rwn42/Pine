@@ -1,11 +1,11 @@
 const std = @import("std");
 
-const lexing = @import("lexer.zig");
-const parsing = @import("parser.zig");
-const Token = @import("token.zig").Token;
-const TokenType = @import("token.zig").TokenType;
+const lexing = @import("./frontend/lexer.zig");
+const parsing = @import("./frontend/parser.zig");
+const Token = @import("./frontend/token.zig").Token;
+const TokenType = @import("./frontend/token.zig").TokenType;
 const StringManager = @import("common.zig").StringManager;
-const ir = @import("ir.zig");
+//const ir = @import("ir2.zig");
 
 const MAX_FILE_BYTES = 1024 * 1024;
 
@@ -85,20 +85,20 @@ pub fn main() !void {
         return;
     }
 
-    var irgen = ir.IRGenerator.init(p.top_level, allocator);
-    irgen.generate() catch {};
-    irgen.deinit();
-    const program = irgen.program.toOwnedSlice() catch {
-        @panic("FATAL COMPILER ERROR: Out of memory");
-    };
-    defer allocator.free(program);
+    // var irgen = ir.IRGenerator.init(p.top_level, allocator);
+    // irgen.generate() catch {};
+    // irgen.deinit();
+    // const program = irgen.program.toOwnedSlice() catch {
+    //     @panic("FATAL COMPILER ERROR: Out of memory");
+    // };
+    // defer allocator.free(program);
 
-    if (cli_options.output_ir) {
-        for (program) |op| {
-            try output_writer.print("{any} \n", .{op});
-            try output_buffer.flush();
-        }
-    }
+    // if (cli_options.output_ir) {
+    //     for (program) |op| {
+    //         try output_writer.print("{any} \n", .{op});
+    //         try output_buffer.flush();
+    //     }
+    // }
     try bw.flush();
     try output_buffer.flush();
 }
