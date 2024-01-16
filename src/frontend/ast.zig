@@ -4,6 +4,8 @@ const Location = @import("../common.zig").Location;
 const Token = @import("token.zig").Token;
 const TokenType = @import("token.zig").TokenType;
 
+//TODO: Array length should just be an expression not a token thats dumb implement after intepreter is done tho
+
 pub const DefinedType = union(enum) {
     Array: *ArrayType,
     Pointer: *PointerType,
@@ -41,8 +43,8 @@ pub const Declaration = union(enum) {
     ConstantDeclaration: *ConstantDeclarationNode,
 
     pub fn format(self: Declaration, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-        _ = fmt; // autofix
-        _ = options; // autofix
+        _ = fmt;
+        _ = options;
         switch (self) {
             .FunctionDeclaration => |decl| {
                 try writer.print("fn {s}\n", .{decl.name_tk.tag});

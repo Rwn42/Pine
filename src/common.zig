@@ -48,9 +48,10 @@ pub const StringManager = struct {
 };
 
 //general purpose stack
-pub fn Stack(comptime T: type, comptime limit: usize) type {
+pub fn Stack(comptime T: type, comptime limit: usize, comptime msg: []const u8) type {
     return struct {
         const Self = @This();
+        const overflow_message = msg;
 
         sp: usize,
         buffer: [limit]T,
@@ -62,8 +63,10 @@ pub fn Stack(comptime T: type, comptime limit: usize) type {
             };
         }
 
+        //only push could happen user side an under flow or out of bounds access would be my fault
         pub fn push(self: *Self, value: T) void {
             if (self.sp >= limit - 1) {
+                std.log.err("{s}", .{overflow_message});
                 @panic("FATAL COMPILER ERROR: Stack Overflow");
             }
             self.buffer[self.sp] = value;

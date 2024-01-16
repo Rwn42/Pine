@@ -5,7 +5,7 @@ const parsing = @import("./frontend/parser.zig");
 const Token = @import("./frontend/token.zig").Token;
 const TokenType = @import("./frontend/token.zig").TokenType;
 const StringManager = @import("common.zig").StringManager;
-//const ir = @import("ir2.zig");
+const ir = @import("backend/ir.zig");
 
 const MAX_FILE_BYTES = 1024 * 1024;
 
@@ -85,20 +85,16 @@ pub fn main() !void {
         return;
     }
 
-    // var irgen = ir.IRGenerator.init(p.top_level, allocator);
-    // irgen.generate() catch {};
-    // irgen.deinit();
-    // const program = irgen.program.toOwnedSlice() catch {
-    //     @panic("FATAL COMPILER ERROR: Out of memory");
-    // };
-    // defer allocator.free(program);
+    var irgen = try ir.IRGenerator.init(allocator, p.top_level);
+    const program = try irgen.generate_program();
+    defer allocator.free(program);
 
-    // if (cli_options.output_ir) {
-    //     for (program) |op| {
-    //         try output_writer.print("{any} \n", .{op});
-    //         try output_buffer.flush();
-    //     }
-    // }
+    if (cli_options.output_ir) {
+        for (program) |op| {
+            try output_writer.print("{any} \n", .{op});
+            try output_buffer.flush();
+        }
+    }
     try bw.flush();
     try output_buffer.flush();
 }

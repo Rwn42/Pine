@@ -1,10 +1,10 @@
 const std = @import("std");
 
-const AST = @import("ast.zig");
+const AST = @import("../frontend/ast.zig");
 const IRError = @import("ir.zig").IRError;
 
-const TokenType = @import("token.zig").TokenType;
-const Token = @import("token.zig").Token;
+const TokenType = @import("../frontend/token.zig").TokenType;
+const Token = @import("../frontend/token.zig").Token;
 
 const IdTypeMap = std.StringHashMap(TypeInfo);
 
@@ -105,7 +105,7 @@ pub const TypeManager = struct {
                 .Basic => |tk| {
                     if (std.mem.eql(u8, tk.tag.Identifier, decl.name_tk.tag.Identifier)) {
                         std.log.err("Recursive data structure defined here {s}", .{tk});
-                        return IRError.DuplicateDefinition;
+                        return IRError.Duplicate;
                     }
                 },
                 else => {},
@@ -134,7 +134,7 @@ pub const TypeManager = struct {
     pub fn register_function(self: *Self, decl: *AST.FunctionDeclarationNode) !void {
         if (self.functions.contains(decl.name_tk.tag.Identifier)) {
             std.log.err("Duplicate function definition {s}", .{decl.name_tk});
-            return IRError.DuplicateDefinition;
+            return IRError.Duplicate;
         }
         const ret_type_info = try self.generate(decl.return_typ);
         self.functions.put(decl.name_tk.tag.Identifier, ret_type_info) catch {
