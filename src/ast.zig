@@ -108,7 +108,6 @@ pub const Statement = union(enum) {
     VariableAssignment: *VariableAssignmentNode,
     IfStatement: *IfStatementNode,
     WhileStatement: *WhileStatementNode,
-    AccessAssignment: *AccessAssignmentNode,
 
     pub fn format(self: Statement, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         switch (self) {
@@ -124,8 +123,8 @@ pub const Statement = union(enum) {
                 }
             },
             .VariableAssignment => |decl| {
-                try writer.print("variable assignment: {s}", .{decl.name_tk.tag});
-                try writer.print(" body: {s}", .{decl.assignment});
+                try writer.print("variable assignment: {s}", .{decl.lhs});
+                try writer.print(" body: {s}", .{decl.rhs});
             },
             .IfStatement => |stmt| {
                 try writer.print("if: {s} do: ", .{stmt.condition});
@@ -139,9 +138,6 @@ pub const Statement = union(enum) {
                     try stmt2.format(fmt, options, writer);
                 }
             },
-            .AccessAssignment => |stmt| {
-                try writer.print("set {s} to {s}", .{ stmt.access_side, stmt.assignment_side });
-            },
         }
     }
 };
@@ -153,13 +149,8 @@ pub const VariableDeclarationNode = struct {
 };
 
 pub const VariableAssignmentNode = struct {
-    name_tk: Token,
-    assignment: Expression,
-};
-
-pub const AccessAssignmentNode = struct {
-    access_side: Expression,
-    assignment_side: Expression,
+    lhs: Expression,
+    rhs: Expression,
 };
 
 pub const IfStatementNode = struct {
