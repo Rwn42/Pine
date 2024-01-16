@@ -236,12 +236,13 @@ const StatementParser = struct {
             },
             .Identifier => {
                 switch (p.peek_token.tag) {
-                    .Dot => {
-                        return try parse_accesser(p);
+                    .Dot, .Equal => {
+                        return try parse_assignment(p);
                     },
-                    .Colon, .Equal => {
+                    .Colon => {
                         try p.adv();
-                        return try parse_local_var(p, initial);
+                        _ = try p.assert_token_is(.Colon);
+                        return try parse_var_decl(p, initial);
                     },
                     else => return .{ .ExpressionStatement = try ExpressionParser.parse(p, .Semicolon) },
                 }
@@ -254,6 +255,9 @@ const StatementParser = struct {
                 try p.adv();
                 return try parse_conditional(p, true, initial.loc);
             },
+            .Hat => {
+                return try parse_assignment(p);
+            },
             else => {
                 std.log.err("Cannot begin statement with {t}", .{initial});
                 return ParseError.UnexpectedToken;
@@ -261,26 +265,14 @@ const StatementParser = struct {
         }
     }
 
-    fn parse_accesser(p: *ParserState) !AST.Statement {
-        const new_node = p.new_node(AST.AccessAssignmentNode);
-        new_node.access_side = try ExpressionParser.parse(p, .Equal);
-        new_node.assignment_side = try ExpressionParser.parse(p, .Semicolon);
-        return .{ .AccessAssignment = new_node };
+    fn parse_assignment(p: *ParserState) !AST.Statement {
+        const new_node = p.new_node(AST.VariableAssignmentNode);
+        new_node.lhs = try ExpressionParser.parse(p, .Equal);
+        new_node.rhs = try ExpressionParser.parse(p, .Semicolon);
+        return .{ .VariableAssignment = new_node };
     }
 
-    fn parse_local_var(p: *ParserState, name_tk: Token) !AST.Statement {
-        //variable assignment
-        if (TokenType.eq(p.token.tag, .Equal)) {
-            try p.adv();
-            var node = p.new_node(AST.VariableAssignmentNode);
-            node.name_tk = name_tk;
-            node.assignment = try ExpressionParser.parse(p, .Semicolon);
-            return .{ .VariableAssignment = node };
-        }
-
-        //variable declaration
-        _ = try p.assert_token_is(.Colon);
-
+    fn parse_var_decl(p: *ParserState, name_tk: Token) !AST.Statement {
         var node = p.new_node(AST.VariableDeclarationNode);
         node.name_tk = name_tk;
         node.assignment = null;
