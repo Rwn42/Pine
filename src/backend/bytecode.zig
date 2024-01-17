@@ -4,10 +4,10 @@ const std = @import("std");
 
 pub const Operation = struct {
     pub const Opcode = enum(u8) {
-        load_8,
-        load_64,
-        store_8,
-        store_64,
+        load,
+        load8,
+        store,
+        store8,
         push, //NOTE: operand is 8 byte number which is the data to push
         add_i,
         add_f,
