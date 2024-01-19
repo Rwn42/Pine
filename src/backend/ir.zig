@@ -27,7 +27,7 @@ pub const IRGenerator = struct {
     };
 
     const Self = @This();
-    const ScopeStackType = Stack(Scope, 32, "Too many nested blocks limit is 30");
+    const ScopeStackType = Stack(*Scope, 32, "Too many nested blocks limit is 30");
 
     program: std.ArrayList(Operation),
     allocator: std.mem.Allocator,
@@ -72,19 +72,19 @@ pub const IRGenerator = struct {
                 .identifiers = std.StringHashMap(VarInfo).init(self.allocator),
             };
             self.stack_pointer = 0;
-            self.scope_stack.push(function_scope);
-            defer self.scope_stack.pop();
+            self.scope_stack.push(&function_scope);
             defer function_scope.identifiers.deinit();
+            defer self.scope_stack.pop();
 
             var param_n = f_decl.params;
             while (param_n) |param| {
                 const info = try self.register_var_decl(param.name_tk, param.typ);
-                try self.generate_stack_op(info.type_info, false, param.name_tk.loc);
+                try self.generate_stack_store(info, param.name_tk.loc);
                 param_n = param.next;
             }
 
             for (f_decl.body) |stmt| {
-                try StatementGenerator.generate(self, stmt);
+                StatementGenerator.generate(self, stmt) catch {};
             }
         }
         return try self.program.toOwnedSlice();
@@ -101,42 +101,40 @@ pub const IRGenerator = struct {
             .type_info = typ,
             .stack_loc = self.stack_pointer,
         });
-        self.stack_pointer += typ.size / 8;
+        self.stack_pointer += typ.size;
 
         return self.scope_stack.top().identifiers.get(name_tk.tag.Identifier).?;
     }
 
     //NOTE: assume params are placed on the stack in reverse order
     //f(1, 2, 3) the stack is then 3 2 1 on operand stack
-    fn generate_stack_op(self: *Self, type_info: typing.TypeInfo, load: bool, loc: Location) !void {
-        if (type_info.tag == .Void) {
-            std.log.err("Cannot have variable of type void {s}", .{loc});
-            return IRError.Syntax;
+    fn generate_stack_store(self: *Self, info: VarInfo, loc: Location) !void {
+        const type_info = info.type_info;
+
+        switch (type_info.tag) {
+            .Void => {
+                std.log.err("Cannot have variable/field of type void {s}", .{loc});
+                return IRError.Syntax;
+            },
+            .Bool, .Byte, .Integer, .Float, .Pointer => {
+                self.program_append(.push, info.stack_loc);
+                self.program_append(if (type_info.size == 1) .store else .store8, info.stack_loc);
+            },
+            .Array => {
+                const element_type = type_info.child.?.type_info;
+                const length = type_info.size / element_type.size;
+                for (0..length) |i| {
+                    try self.generate_stack_store(.{ .type_info = element_type.*, .stack_loc = i * element_type.size }, loc);
+                }
+            },
+            .Record => {
+                for (info.type_info.child.?.field_info.values()) |field| {
+                    try self.generate_stack_store(.{ .type_info = field.type_info, .stack_loc = field.offset + info.stack_loc }, loc);
+                }
+                return;
+            },
+            else => @panic("cannot yet store type"),
         }
-
-        //some sort of primitive including pointers
-        if (type_info.tag != .Record and type_info.tag != .Array) {
-            self.program_append(.push, self.stack_pointer);
-            if (load) {
-                self.program_append(if (type_info.size == 1) .load else .load8, null);
-            } else {
-                self.program_append(if (type_info.size == 1) .store else .store8, null);
-            }
-            self.stack_pointer += type_info.size;
-            return;
-        }
-
-        if (type_info.tag == .Array) {
-            const element_type = type_info.child.?.type_info;
-            const length = type_info.size / element_type.size;
-            for (0..length) |_| try self.generate_stack_op(element_type.*, load, loc);
-            return;
-        }
-
-        if (type_info.tag != .Record) @panic("New type tag update generate stack op");
-
-        var vals = type_info.child.?.field_info.values();
-        for (vals) |field| try self.generate_stack_op(field.type_info, load, loc);
     }
 
     fn program_append(self: *Self, opc: Operation.Opcode, ope: ?u64) void {
@@ -152,19 +150,24 @@ pub const IRGenerator = struct {
 
 const StatementGenerator = struct {
     fn generate(ir: *IRGenerator, input_stmt: AST.Statement) !void {
-        _ = ir; // autofix
-        _ = input_stmt; // autofix
-
-        return IRError.Duplicate;
+        switch (input_stmt) {
+            .ReturnStatement => |stmt| {
+                try ExpressionGenerator.generate_rvalue(ir, stmt);
+                ir.program_append(.ret, null);
+            },
+            else => {},
+        }
     }
 };
 
 const ExpressionGenerator = struct {
     fn generate_rvalue(ir: *IRGenerator, input_expr: AST.Expression) !void {
-        _ = ir; // autofix
-        _ = input_expr; // autofix
-
-        return IRError.Duplicate;
+        switch (input_expr) {
+            .LiteralInt => |token| {
+                ir.program_append(.push, @bitCast(token.tag.Integer));
+            },
+            else => {},
+        }
     }
 
     fn generate_lvalue(ir: *IRGenerator, input_expr: AST.Expression) !void {

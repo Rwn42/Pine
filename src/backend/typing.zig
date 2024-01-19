@@ -51,9 +51,9 @@ pub const TypeManager = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        self.arena.deinit();
         self.records.deinit();
         self.functions.deinit();
+        self.arena.deinit();
     }
 
     pub fn generate(self: *Self, dt: AST.DefinedType) !TypeInfo {
@@ -61,7 +61,7 @@ pub const TypeManager = struct {
             .Basic => |typ| {
                 if (Primitive.get(typ.tag.Identifier)) |info| return info;
                 if (self.records.get(typ.tag.Identifier)) |info| return info;
-                std.log.err("Undeclared type {t}", .{typ});
+                std.log.err("Undeclared type {s}", .{typ});
                 return IRError.Undeclared;
             },
             .Pointer => |p| blk: {

@@ -80,8 +80,8 @@ pub fn Stack(comptime T: type, comptime limit: usize, comptime msg: []const u8) 
             self.sp -= 1;
         }
 
-        pub fn top(self: *Self) *T {
-            return &self.buffer[self.sp - 1];
+        pub fn top(self: *Self) T {
+            return self.buffer[self.sp - 1];
         }
 
         pub fn top_idx(self: *Self) usize {
