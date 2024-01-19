@@ -268,6 +268,7 @@ const StatementParser = struct {
     fn parse_assignment(p: *ParserState) !AST.Statement {
         const new_node = p.new_node(AST.VariableAssignmentNode);
         new_node.lhs = try ExpressionParser.parse(p, .Equal);
+        new_node.loc = p.token.loc;
         new_node.rhs = try ExpressionParser.parse(p, .Semicolon);
         return .{ .VariableAssignment = new_node };
     }

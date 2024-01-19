@@ -125,7 +125,7 @@ pub const Statement = union(enum) {
                 }
             },
             .VariableAssignment => |decl| {
-                try writer.print("variable assignment: {s}", .{decl.lhs});
+                try writer.print("variable assignment: {s} {s}", .{ decl.lhs, decl.loc });
                 try writer.print(" body: {s}", .{decl.rhs});
             },
             .IfStatement => |stmt| {
@@ -153,6 +153,7 @@ pub const VariableDeclarationNode = struct {
 pub const VariableAssignmentNode = struct {
     lhs: Expression,
     rhs: Expression,
+    loc: Location,
 };
 
 pub const IfStatementNode = struct {

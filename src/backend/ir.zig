@@ -79,7 +79,8 @@ pub const IRGenerator = struct {
             var param_n = f_decl.params;
             while (param_n) |param| {
                 const info = try self.register_var_decl(param.name_tk, param.typ);
-                try self.generate_stack_store(info, param.name_tk.loc);
+                self.program_append(.push, info.stack_loc);
+                try self.generate_stack_store(info.type_info, param.name_tk.loc);
                 param_n = param.next;
             }
 
@@ -106,35 +107,54 @@ pub const IRGenerator = struct {
         return self.scope_stack.top().identifiers.get(name_tk.tag.Identifier).?;
     }
 
+    fn find_identifier(self: *Self, identifier_tk: Token, idx: usize) !VarInfo {
+        const identifier = identifier_tk.tag.Identifier;
+        if (self.scope_stack.get(idx).identifiers.get(identifier)) |info| return info;
+        if (idx == 0) {
+            std.log.err("No variable declared for identifier {s}", .{identifier_tk});
+            return IRError.Undeclared;
+        }
+        return try self.find_identifier(identifier_tk, idx - 1);
+    }
+
     //NOTE: assume params are placed on the stack in reverse order
     //f(1, 2, 3) the stack is then 3 2 1 on operand stack
-    fn generate_stack_store(self: *Self, info: VarInfo, loc: Location) !void {
-        const type_info = info.type_info;
-
+    //NOTE: assume address to store to is also on the stack so f(1, 2, 3) 3 2 1 0 to store 1 at 0.
+    fn generate_stack_store_r(self: *Self, type_info: typing.TypeInfo, loc: Location) !void {
         switch (type_info.tag) {
             .Void => {
                 std.log.err("Cannot have variable/field of type void {s}", .{loc});
                 return IRError.Syntax;
             },
             .Bool, .Byte, .Integer, .Float, .Pointer => {
-                self.program_append(.push, info.stack_loc);
-                self.program_append(if (type_info.size == 1) .store else .store8, info.stack_loc);
+                self.program_append(.dup, null);
+                self.program_append(.rot, null);
+                self.program_append(if (type_info.size == 1) .store else .store8, null);
             },
             .Array => {
                 const element_type = type_info.child.?.type_info;
                 const length = type_info.size / element_type.size;
-                for (0..length) |i| {
-                    try self.generate_stack_store(.{ .type_info = element_type.*, .stack_loc = i * element_type.size }, loc);
+                for (0..length) |_| {
+                    self.program_append(.push, element_type.size);
+                    self.program_append(.add_i, null);
+                    try self.generate_stack_store_r(type_info, loc);
                 }
             },
             .Record => {
-                for (info.type_info.child.?.field_info.values()) |field| {
-                    try self.generate_stack_store(.{ .type_info = field.type_info, .stack_loc = field.offset + info.stack_loc }, loc);
+                for (type_info.child.?.field_info.values()) |field| {
+                    self.program_append(.push, field.offset);
+                    self.program_append(.add_i, null);
+                    try self.generate_stack_store_r(field.type_info, loc);
                 }
                 return;
             },
             else => @panic("cannot yet store type"),
         }
+    }
+
+    fn generate_stack_store(self: *Self, type_info: typing.TypeInfo, loc: Location) !void {
+        try self.generate_stack_store_r(type_info, loc);
+        self.program_append(.drop, null);
     }
 
     fn program_append(self: *Self, opc: Operation.Opcode, ope: ?u64) void {
@@ -155,6 +175,20 @@ const StatementGenerator = struct {
                 try ExpressionGenerator.generate_rvalue(ir, stmt);
                 ir.program_append(.ret, null);
             },
+            .VariableDeclaration => |stmt| {
+                if (stmt.typ == null) @panic("variable type inference not implemented");
+                const var_info = try ir.register_var_decl(stmt.name_tk, stmt.typ.?);
+                if (stmt.assignment) |assignment| {
+                    try ExpressionGenerator.generate_rvalue(ir, assignment);
+                    ir.program_append(.push, var_info.stack_loc);
+                    try ir.generate_stack_store(var_info.type_info, stmt.name_tk.loc);
+                }
+            },
+            .VariableAssignment => |stmt| {
+                try ExpressionGenerator.generate_rvalue(ir, stmt.rhs);
+                const type_info = try ExpressionGenerator.generate_lvalue(ir, stmt.lhs);
+                try ir.generate_stack_store(type_info, stmt.loc);
+            },
             else => {},
         }
     }
@@ -170,10 +204,14 @@ const ExpressionGenerator = struct {
         }
     }
 
-    fn generate_lvalue(ir: *IRGenerator, input_expr: AST.Expression) !void {
-        _ = ir; // autofix
-        _ = input_expr; // autofix
-
-        return IRError.Duplicate;
+    fn generate_lvalue(ir: *IRGenerator, input_expr: AST.Expression) !typing.TypeInfo {
+        switch (input_expr) {
+            .IdentifierInvokation => |token| {
+                const var_info = try ir.find_identifier(token, ir.scope_stack.top_idx());
+                ir.program_append(.push, var_info.stack_loc);
+                return var_info.type_info;
+            },
+            else => @panic("not implemented"),
+        }
     }
 };

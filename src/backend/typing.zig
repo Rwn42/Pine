@@ -122,7 +122,7 @@ pub const TypeManager = struct {
                 @panic("FATAL COMPILER ERROR: Out of memory");
             };
 
-            cur_offset += field_ti.size / 8;
+            cur_offset += field_ti.size;
             ast_field_o = ast_field.next;
         }
 

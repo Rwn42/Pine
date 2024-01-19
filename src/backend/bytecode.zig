@@ -21,6 +21,9 @@ pub const Operation = struct {
         je,
         call,
         ret,
+        dup,
+        drop,
+        rot,
     };
 
     opc: Opcode,
