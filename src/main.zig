@@ -6,6 +6,7 @@ const Token = @import("./frontend/token.zig").Token;
 const TokenType = @import("./frontend/token.zig").TokenType;
 const StringManager = @import("common.zig").StringManager;
 const ir = @import("backend/ir.zig");
+const Interpreter = @import("./backend/interpreter.zig").Interpreter;
 
 const MAX_FILE_BYTES = 1024 * 1024;
 
@@ -95,6 +96,9 @@ pub fn main() !void {
             try output_buffer.flush();
         }
     }
+
+    var interpreter = Interpreter.init_from_program(program);
+    try interpreter.run();
     try bw.flush();
     try output_buffer.flush();
 }

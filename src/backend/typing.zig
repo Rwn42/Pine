@@ -142,7 +142,7 @@ pub const TypeManager = struct {
         };
     }
 
-    fn new_info(self: *Self) *TypeInfo {
+    pub fn new_info(self: *Self) *TypeInfo {
         return self.arena.allocator().create(TypeInfo) catch {
             @panic("FATAL COMPILER ERROR: Out of memory");
         };

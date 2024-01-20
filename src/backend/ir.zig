@@ -8,6 +8,10 @@ const typing = @import("typing.zig");
 const Stack = @import("../common.zig").Stack;
 const Operation = @import("bytecode.zig").Operation;
 
+//TODO: Code cleanup
+//TODO: implement array / record initilization remember to reverse order
+//TODO: little interpreter for testing
+
 pub const IRError = error{
     Undeclared,
     Mismatch,
@@ -121,7 +125,6 @@ pub const IRGenerator = struct {
     //f(1, 2, 3) the stack is then 3 2 1 on operand stack
     //NOTE: assume address to store to is also on the stack so f(1, 2, 3) 3 2 1 0 to store 1 at 0.
     fn generate_stack_store(self: *Self, type_info: typing.TypeInfo, loc: Location) !void {
-        self.program_append(.gstore, null); //store the address into the gp reg
         switch (type_info.tag) {
             .Void => {
                 std.log.err("Cannot have variable/field of type void {s}", .{loc});
@@ -131,6 +134,7 @@ pub const IRGenerator = struct {
                 self.program_append(if (type_info.size == 1) .store else .store8, null);
             },
             .Array => {
+                self.program_append(.gstore, null); //store the address into the gp reg
                 const element_type = (type_info.child orelse @panic("compiler error")).type_info;
                 const length = type_info.size / element_type.size;
                 for (0..length) |i| {
@@ -143,6 +147,7 @@ pub const IRGenerator = struct {
                 }
             },
             .Record => {
+                self.program_append(.gstore, null); //store the address into the gp reg
                 for (type_info.child.?.field_info.values()) |field| {
                     self.program_append(.gload, null);
                     self.program_append(.push, field.offset);
@@ -205,6 +210,24 @@ const ExpressionGenerator = struct {
                 ir.program_append(.load, null);
                 return info.type_info;
             },
+            .ArrayInitialization => |list| {
+                //arrays need to be placed in reverse order
+                //so save start location
+                var start_ip = ir.program.items.len;
+                var list_o: ?*AST.ExprList = list;
+                var element_type = ir.tm.new_info();
+
+                while (list_o) |list_node| {
+                    element_type.* = try generate_rvalue(ir, list_node.expr);
+                    list_o = list_node.next;
+                }
+                std.mem.reverse(Operation, ir.program.items[start_ip..]);
+                return .{
+                    .tag = .Array,
+                    .size = ir.program.items[start_ip..].len * element_type.size,
+                    .child = .{ .type_info = element_type },
+                };
+            },
             else => @panic("Not implemented"),
         }
     }
@@ -266,8 +289,6 @@ const ExpressionGenerator = struct {
                         return IRError.Syntax;
                     },
                 }
-                //input info tells us about the type of a_expr.lhs
-                @panic("not implemented");
             },
             //some sort of array access
             else => {

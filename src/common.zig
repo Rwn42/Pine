@@ -80,6 +80,15 @@ pub fn Stack(comptime T: type, comptime limit: usize, comptime msg: []const u8) 
             self.sp -= 1;
         }
 
+        pub fn pop_ret(self: *Self) T {
+            const a = self.top();
+            if (self.sp <= 0) {
+                @panic("FATAL COMPILER ERROR: Stack Underflow");
+            }
+            self.sp -= 1;
+            return a;
+        }
+
         pub fn top(self: *Self) T {
             return self.buffer[self.sp - 1];
         }
