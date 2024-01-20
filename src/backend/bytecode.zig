@@ -8,6 +8,8 @@ pub const Operation = struct {
         load8,
         store,
         store8,
+        gload, //load value from general purpose register for now just an address
+        gstore, //store value into general purpose register
         push, //NOTE: operand is 8 byte number which is the data to push
         add_i,
         add_f,
@@ -21,9 +23,6 @@ pub const Operation = struct {
         je,
         call,
         ret,
-        dup,
-        drop,
-        rot,
     };
 
     opc: Opcode,

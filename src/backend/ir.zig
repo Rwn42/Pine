@@ -120,41 +120,39 @@ pub const IRGenerator = struct {
     //NOTE: assume params are placed on the stack in reverse order
     //f(1, 2, 3) the stack is then 3 2 1 on operand stack
     //NOTE: assume address to store to is also on the stack so f(1, 2, 3) 3 2 1 0 to store 1 at 0.
-    fn generate_stack_store_r(self: *Self, type_info: typing.TypeInfo, loc: Location) !void {
+    fn generate_stack_store(self: *Self, type_info: typing.TypeInfo, loc: Location) !void {
+        self.program_append(.gstore, null); //store the address into the gp reg
         switch (type_info.tag) {
             .Void => {
                 std.log.err("Cannot have variable/field of type void {s}", .{loc});
                 return IRError.Syntax;
             },
             .Bool, .Byte, .Integer, .Float, .Pointer => {
-                self.program_append(.dup, null);
-                self.program_append(.rot, null);
                 self.program_append(if (type_info.size == 1) .store else .store8, null);
             },
             .Array => {
-                const element_type = type_info.child.?.type_info;
+                const element_type = (type_info.child orelse @panic("compiler error")).type_info;
                 const length = type_info.size / element_type.size;
-                for (0..length) |_| {
+                for (0..length) |i| {
+                    self.program_append(.gload, null);
                     self.program_append(.push, element_type.size);
+                    self.program_append(.push, i);
+                    self.program_append(.mul_i, null);
                     self.program_append(.add_i, null);
-                    try self.generate_stack_store_r(type_info, loc);
+                    try self.generate_stack_store(element_type.*, loc);
                 }
             },
             .Record => {
                 for (type_info.child.?.field_info.values()) |field| {
+                    self.program_append(.gload, null);
                     self.program_append(.push, field.offset);
                     self.program_append(.add_i, null);
-                    try self.generate_stack_store_r(field.type_info, loc);
+                    try self.generate_stack_store(field.type_info, loc);
                 }
                 return;
             },
             else => @panic("cannot yet store type"),
         }
-    }
-
-    fn generate_stack_store(self: *Self, type_info: typing.TypeInfo, loc: Location) !void {
-        try self.generate_stack_store_r(type_info, loc);
-        self.program_append(.drop, null);
     }
 
     fn program_append(self: *Self, opc: Operation.Opcode, ope: ?u64) void {
@@ -172,20 +170,20 @@ const StatementGenerator = struct {
     fn generate(ir: *IRGenerator, input_stmt: AST.Statement) !void {
         switch (input_stmt) {
             .ReturnStatement => |stmt| {
-                try ExpressionGenerator.generate_rvalue(ir, stmt);
+                _ = try ExpressionGenerator.generate_rvalue(ir, stmt);
                 ir.program_append(.ret, null);
             },
             .VariableDeclaration => |stmt| {
                 if (stmt.typ == null) @panic("variable type inference not implemented");
                 const var_info = try ir.register_var_decl(stmt.name_tk, stmt.typ.?);
                 if (stmt.assignment) |assignment| {
-                    try ExpressionGenerator.generate_rvalue(ir, assignment);
+                    _ = try ExpressionGenerator.generate_rvalue(ir, assignment);
                     ir.program_append(.push, var_info.stack_loc);
                     try ir.generate_stack_store(var_info.type_info, stmt.name_tk.loc);
                 }
             },
             .VariableAssignment => |stmt| {
-                try ExpressionGenerator.generate_rvalue(ir, stmt.rhs);
+                _ = try ExpressionGenerator.generate_rvalue(ir, stmt.rhs);
                 const type_info = try ExpressionGenerator.generate_lvalue(ir, stmt.lhs);
                 try ir.generate_stack_store(type_info, stmt.loc);
             },
@@ -195,12 +193,19 @@ const StatementGenerator = struct {
 };
 
 const ExpressionGenerator = struct {
-    fn generate_rvalue(ir: *IRGenerator, input_expr: AST.Expression) !void {
+    fn generate_rvalue(ir: *IRGenerator, input_expr: AST.Expression) !typing.TypeInfo {
         switch (input_expr) {
             .LiteralInt => |token| {
                 ir.program_append(.push, @bitCast(token.tag.Integer));
+                return typing.Primitive.get("int").?;
             },
-            else => {},
+            .IdentifierInvokation => |token| {
+                const info = try ir.find_identifier(token, ir.scope_stack.top_idx());
+                ir.program_append(.push, info.stack_loc);
+                ir.program_append(.load, null);
+                return info.type_info;
+            },
+            else => @panic("Not implemented"),
         }
     }
 
@@ -211,7 +216,71 @@ const ExpressionGenerator = struct {
                 ir.program_append(.push, var_info.stack_loc);
                 return var_info.type_info;
             },
+            .AccessExpression => |expr| {
+                const initial_info = try ExpressionGenerator.generate_lvalue(ir, expr.lhs);
+                const type_info = try ExpressionGenerator.generate_access_r(ir, expr.rhs, initial_info);
+                ir.program_append(.add_i, null);
+                return type_info;
+            },
+            .UnaryExpression => |expr| {
+                if (expr.op.tag != .Hat) {
+                    std.log.err("Cannot assign to a non variable {s}", .{expr.op.loc});
+                    return IRError.Syntax;
+                }
+                return try ExpressionGenerator.generate_rvalue(ir, expr.expr);
+            },
             else => @panic("not implemented"),
+        }
+    }
+
+    fn generate_access_r(ir: *IRGenerator, expr: AST.Expression, input_info: typing.TypeInfo) !typing.TypeInfo {
+        switch (expr) {
+            .IdentifierInvokation => |field_tk| {
+                if (input_info.tag != .Record) {
+                    std.log.err("cannot access a non record variable {s}", .{field_tk});
+                    return IRError.Syntax;
+                }
+                if (input_info.child.?.field_info.get(field_tk.tag.Identifier)) |field_info| {
+                    ir.program_append(.push, field_info.offset);
+                    return field_info.type_info;
+                }
+                std.log.err("No field {s} in record", .{field_tk});
+                return IRError.Syntax;
+            },
+            .AccessExpression => |a_expr| {
+                switch (input_info.tag) {
+                    .Record => {
+                        const rhs_input_info = try generate_access_r(ir, a_expr.lhs, input_info);
+                        const rhs_info = try generate_access_r(ir, a_expr.rhs, rhs_input_info);
+                        ir.program_append(.add_i, null);
+                        return rhs_info;
+                    },
+                    .Array => {
+                        _ = try generate_access_r(ir, a_expr.lhs, input_info);
+                        const rhs_info = try generate_access_r(ir, a_expr.rhs, input_info.child.?.type_info.*);
+                        ir.program_append(.add_i, null);
+                        return rhs_info;
+                    },
+                    else => {
+                        std.log.err("Must access record or array {s}", .{a_expr.op.loc});
+                        return IRError.Syntax;
+                    },
+                }
+                //input info tells us about the type of a_expr.lhs
+                @panic("not implemented");
+            },
+            //some sort of array access
+            else => {
+                if (input_info.child == null) {
+                    //TODO: dont print the whole expression or maybe...
+                    std.log.err("Tried to access a non indexible value {s}", .{expr});
+                    return IRError.Syntax;
+                }
+                _ = try ExpressionGenerator.generate_rvalue(ir, expr);
+                ir.program_append(.push, input_info.child.?.type_info.size);
+                ir.program_append(.mul_i, null);
+                return input_info.child.?.type_info.*;
+            },
         }
     }
 };
