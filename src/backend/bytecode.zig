@@ -1,31 +1,29 @@
 const std = @import("std");
 
-//TODO: instruction documentation
-
 pub const Operation = struct {
     pub const Opcode = enum(u8) {
-        load,
-        load8,
-        store,
-        store8,
+        load, //load a value from address which is at the top of the stack
+        load8, //load a 8 byte value from address which is at the top of the stack
+        store, //store a value from address which is at the top of the stack (value is second to the top)
+        store8, //store a 8 byte value from address which is at the top of the stack (value is second to the top)
         gload, //load value from general purpose register for now just an address
         gstore, //store value into general purpose register
-        push, //NOTE: operand is 8 byte number which is the data to push
-        add_i,
-        add_f,
-        mul_i,
-        mul_f,
-        lt_i,
-        lte_i,
-        lt_f,
-        lte_f,
-        eq,
-        not,
-        jmp,
-        temp_print,
-        je,
-        call, //Operand is return address not call location
-        ret,
+        push, //operand is 8 byte number which is the data to push
+        add_i, //operand controls sign anything but 0 for subtraction
+        add_f, //operand controls sign anything but 0 for subtraction
+        mul_i, //operand controls sign anything but 0 for division
+        mul_f, //operand controls sign anything but 0 for division
+        lt_i, //operand controls sign anything but 0 for greater than
+        lte_i, //operand controls sign anything but 0 for greater than equal
+        lt_f, //operand controls sign anything but 0 for greater than
+        lte_f, //operand controls sign anything but 0 for greater than equal
+        eq, //operand controls sign anything but  0 for not equal is not type dependant just compares bytes
+        not, //if value on stack is 1 sets it to 0 if its 0 sets it to 1 anything else is an error
+        jmp, //jumps to operand position
+        temp_print, //prints integer or character only a temporary instruction
+        je, //jumps if to operand position if the second last value is equal
+        call, //Operand is return address not call location call location is put on stack
+        ret, //has no operand pops the call stack and goes to return address
     };
 
     opc: Opcode,

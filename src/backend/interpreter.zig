@@ -6,9 +6,6 @@ const Stack = @import("../common.zig").Stack;
 const OperandStack = Stack(u64, 1024, "Expression is too long");
 const CallStack = Stack(*StackFrame, 128, "Recursion Depth Reached");
 
-//TODO: Cleanup
-//TODO: look for simple optimizations
-
 pub const InterpreterError = error{
     Done,
     UnexpectedEnd,
@@ -69,7 +66,7 @@ pub const Interpreter = struct {
             return InterpreterError.UnexpectedEnd;
         }
         const inst = i.program[i.ip];
-        //print(i);
+
         switch (inst.opc) {
             .push => {
                 i.operand_stack.push(inst.operand.?);
@@ -77,19 +74,38 @@ pub const Interpreter = struct {
             .mul_i => {
                 const b: i64 = @bitCast(i.operand_stack.pop_ret());
                 const a: i64 = @bitCast(i.operand_stack.pop_ret());
-                if (inst.operand.? == 1) {
-                    i.operand_stack.push(@bitCast((@divTrunc(a, b))));
-                } else {
+                if (inst.operand.? == 0) {
                     i.operand_stack.push(@bitCast((a * b)));
+                } else {
+                    i.operand_stack.push(@bitCast((@divTrunc(a, b))));
                 }
             },
             .add_i => {
                 const b: i64 = @bitCast(i.operand_stack.pop_ret());
                 const a: i64 = @bitCast(i.operand_stack.pop_ret());
-                if (inst.operand.? == 1) {
-                    i.operand_stack.push(@bitCast((a - b)));
-                } else {
+                if (inst.operand.? == 0) {
                     i.operand_stack.push(@bitCast((a + b)));
+                } else {
+                    i.operand_stack.push(@bitCast((a - b)));
+                }
+            },
+            .add_f => {
+                const b: f64 = @bitCast(i.operand_stack.pop_ret());
+                const a: f64 = @bitCast(i.operand_stack.pop_ret());
+                if (inst.operand.? == 0) {
+                    i.operand_stack.push(@bitCast((a + b)));
+                } else {
+                    i.operand_stack.push(@bitCast((a - b)));
+                }
+            },
+
+            .mul_f => {
+                const b: f64 = @bitCast(i.operand_stack.pop_ret());
+                const a: f64 = @bitCast(i.operand_stack.pop_ret());
+                if (inst.operand.? == 0) {
+                    i.operand_stack.push(@bitCast((a * b)));
+                } else {
+                    i.operand_stack.push(@bitCast((a / b)));
                 }
             },
 
@@ -102,7 +118,6 @@ pub const Interpreter = struct {
                     i.operand_stack.push(if (a == b) 0 else 1);
                 }
             },
-
             .lt_i => {
                 const b: i64 = @bitCast(i.operand_stack.pop_ret());
                 const a: i64 = @bitCast(i.operand_stack.pop_ret());
@@ -112,7 +127,6 @@ pub const Interpreter = struct {
                     i.operand_stack.push(if (a > b) 1 else 0);
                 }
             },
-
             .lte_i => {
                 const b: i64 = @bitCast(i.operand_stack.pop_ret());
                 const a: i64 = @bitCast(i.operand_stack.pop_ret());
@@ -122,28 +136,35 @@ pub const Interpreter = struct {
                     i.operand_stack.push(if (a >= b) 1 else 0);
                 }
             },
-
+            .lt_f => {
+                const b: i64 = @bitCast(i.operand_stack.pop_ret());
+                const a: i64 = @bitCast(i.operand_stack.pop_ret());
+                if (inst.operand.? == 0) {
+                    i.operand_stack.push(if (a < b) 1 else 0);
+                } else {
+                    i.operand_stack.push(if (a > b) 1 else 0);
+                }
+            },
+            .lte_f => {
+                const b: f64 = @bitCast(i.operand_stack.pop_ret());
+                const a: f64 = @bitCast(i.operand_stack.pop_ret());
+                if (inst.operand.? == 0) {
+                    i.operand_stack.push(if (a <= b) 1 else 0);
+                } else {
+                    i.operand_stack.push(if (a >= b) 1 else 0);
+                }
+            },
             .jmp => {
-                const loc = i.operand_stack.pop_ret();
-                i.ip = loc;
+                i.ip = inst.operand.?;
                 return;
             },
             .je => {
-                const loc = i.operand_stack.pop_ret();
                 const val = i.operand_stack.pop_ret();
-                if (inst.operand.? == 0) {
-                    if (val == 1) {
-                        i.ip = loc;
-                        return;
-                    }
-                } else {
-                    if (val != 1) {
-                        i.ip = loc;
-                        return;
-                    }
+                if (val == 1) {
+                    i.ip = inst.operand.?;
+                    return;
                 }
             },
-
             .temp_print => {
                 switch (inst.operand.?) {
                     0 => std.debug.print("{d} \n", .{i.operand_stack.pop_ret()}),
@@ -151,13 +172,11 @@ pub const Interpreter = struct {
                     else => {},
                 }
             },
-
             .not => {
                 const a = i.operand_stack.pop_ret();
                 if (a != 1 and a != 0) @panic("Cannot negate a non boolean");
                 i.operand_stack.push(if (a == 1) 0 else 1);
             },
-
             .gstore => {
                 i.temp_r = i.operand_stack.pop_ret();
             },
@@ -205,8 +224,6 @@ pub const Interpreter = struct {
                 if (i.ip == 0) return InterpreterError.Done;
                 return;
             },
-
-            else => @panic("Not implemented"),
         }
         i.ip += 1;
     }

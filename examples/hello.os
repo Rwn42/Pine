@@ -6,7 +6,7 @@ String :: record {
 print_string :: fn(s: String) void {
     i: int = 0;
     while i < s.length {
-        print s.buffer.i;
+        #print s.buffer.i;
         i = i + 1;
     }
 }

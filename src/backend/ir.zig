@@ -272,12 +272,13 @@ const StatementGenerator = struct {
                 defer if_scope.identifiers.deinit();
                 defer ir.scope_stack.pop();
 
-                ir.program_append(.push, 0);
+                ir.program_append(.not, null);
                 ir.program_append(.je, 1);
                 for (stmt.body) |body_stmt| {
                     try StatementGenerator.generate(ir, body_stmt);
                 }
-                ir.program.items[if_scope.start_ip].operand = ir.program.items.len;
+                //plus 1 skips the not
+                ir.program.items[if_scope.start_ip + 1].operand = ir.program.items.len;
             },
             .WhileStatement => |stmt| {
                 const jump_back_ip = ir.program.items.len;
@@ -294,15 +295,13 @@ const StatementGenerator = struct {
                 ir.scope_stack.push(&while_scope);
                 defer while_scope.identifiers.deinit();
                 defer ir.scope_stack.pop();
-
-                ir.program_append(.push, 0);
+                ir.program_append(.not, null);
                 ir.program_append(.je, 1);
                 for (stmt.body) |body_stmt| {
                     try StatementGenerator.generate(ir, body_stmt);
                 }
-                ir.program_append(.push, jump_back_ip);
-                ir.program_append(.jmp, null);
-                ir.program.items[while_scope.start_ip].operand = ir.program.items.len;
+                ir.program_append(.jmp, jump_back_ip);
+                ir.program.items[while_scope.start_ip + 1].operand = ir.program.items.len;
             },
             .TemporaryPrint => |expr| {
                 const t_info = try ExpressionGenerator.generate_rvalue(ir, expr);
