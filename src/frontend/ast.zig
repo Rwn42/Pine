@@ -41,6 +41,7 @@ pub const Declaration = union(enum) {
     FunctionDeclaration: *FunctionDeclarationNode,
     RecordDeclaration: *RecordDeclarationNode,
     ConstantDeclaration: *ConstantDeclarationNode,
+    ImportDeclaration: Token,
 
     pub fn format(self: Declaration, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = fmt;
@@ -64,6 +65,9 @@ pub const Declaration = union(enum) {
             },
             .ConstantDeclaration => |decl| {
                 try writer.print("constant: {s} :: {s}", .{ decl.name_tk.tag, decl.value });
+            },
+            .ImportDeclaration => |decl| {
+                try writer.print("importing {s}", .{decl});
             },
         }
     }
@@ -142,7 +146,7 @@ pub const Statement = union(enum) {
                 }
             },
             .TemporaryPrint => |expr| {
-                try writer.print("print {s}", .{expr});
+                try writer.print("print {s} ", .{expr});
             },
         }
     }
@@ -181,6 +185,7 @@ pub const Expression = union(enum) {
     FunctionInvokation: *FunctionInvokationNode,
     ArrayInitialization: *ExprList,
     RecordInitialization: *RecordInitializationNode,
+    Cast: *CastExpressionNode,
     LiteralInt: Token,
     LiteralFloat: Token,
     LiteralBool: Token,
@@ -216,8 +221,16 @@ pub const Expression = union(enum) {
             .RecordInitialization => |expr| {
                 try writer.print("record init: type {s},  {s}", .{ expr.name_tk, expr.fields });
             },
+            .Cast => |cast| {
+                try writer.print("casting {s} to {s}", .{ cast.expr, cast.destination_type });
+            },
         }
     }
+};
+
+pub const CastExpressionNode = struct {
+    destination_type: DefinedType,
+    expr: Expression,
 };
 
 // a + b;

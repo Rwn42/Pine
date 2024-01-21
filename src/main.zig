@@ -55,6 +55,7 @@ pub fn main() !void {
         }
         return;
     };
+    defer allocator.free(file_buffer); //eventually this can be freed after parsing
     if (file_buffer.len == 0) {
         std.log.err("File {s} was found but is empty", .{cli_options.input_file});
         return;
@@ -69,12 +70,12 @@ pub fn main() !void {
     var l = lexing.Lexer.init(file_buffer, cli_options.input_file, &sm) orelse return;
     if (cli_options.lex_only) {
         try print_lexer(output_writer, &l);
+
         return;
     }
 
     var p = parsing.ParserState.init(&l, allocator) orelse return;
     p.parse();
-    allocator.free(file_buffer);
     defer p.deinit();
 
     if (cli_options.parse_only) {

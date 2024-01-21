@@ -106,6 +106,11 @@ pub const ParserState = struct {
 
 pub const DeclarationParser = struct {
     fn parse(p: *ParserState) !AST.Declaration {
+        if (TokenType.eq(.Import, p.token.tag)) {
+            _ = try p.adv();
+            return .{ .ImportDeclaration = try p.assert_token_is(.{ .String = "" }) };
+        }
+
         const name_tk = try p.assert_token_is(.{ .Identifier = "" });
         _ = try p.assert_token_is(.Colon);
         _ = try p.assert_token_is(.Colon);
@@ -392,6 +397,15 @@ const ExpressionParser = struct {
                     },
                     else => .{ .IdentifierInvokation = p.token },
                 };
+            },
+            .Cast => blk: {
+                const cast_expr = p.new_node(AST.CastExpressionNode);
+                _ = try p.expect_delimiter(.Lparen);
+                cast_expr.destination_type = try TypeParser.parse(p);
+                _ = try p.assert_token_is(.Comma);
+                cast_expr.expr = try ExpressionParser.parse_precedence(p, .Lowest);
+                _ = try p.expect(.Rparen);
+                break :blk .{ .Cast = cast_expr };
             },
             else => {
                 std.log.err("Cannot start expression with token {s}", .{p.token});

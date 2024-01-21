@@ -59,6 +59,7 @@ pub const IRGenerator = struct {
                 },
                 .RecordDeclaration => |r_decl| try tm.register_record(r_decl),
                 .ConstantDeclaration => @panic("Not implemented"),
+                .ImportDeclaration => @panic("not implemented"),
                 //eventually constants go to comptime eval and end up as map of string -> value
             }
         }
