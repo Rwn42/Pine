@@ -28,7 +28,7 @@ pub const TypeTag = enum {
     Void,
 };
 
-const FieldInfoStruct = struct {
+pub const FieldInfoStruct = struct {
     type_info: TypeInfo,
     offset: usize,
 };

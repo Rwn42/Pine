@@ -88,7 +88,6 @@ pub const Interpreter = struct {
             .store => {
                 const position = i.operand_stack.pop_ret();
                 const value = i.operand_stack.pop_ret();
-                //std.debug.print("storing: {d} at {d} \n", .{ value, position });
                 i.locals[position] = @as(u8, @intCast(value));
             },
             .store8 => {
@@ -98,6 +97,18 @@ pub const Interpreter = struct {
                     i.locals[position + idx] = byte;
                 }
             },
+            .load => {
+                const position = i.operand_stack.pop_ret();
+                i.operand_stack.push(i.locals[position]);
+            },
+            .load8 => {
+                const position = i.operand_stack.pop_ret();
+                var bytes: [8]u8 = [_]u8{0} ** 8;
+                std.mem.copy(u8, &bytes, i.locals[position .. position + 8]);
+                const value = std.mem.bytesAsValue(u64, &bytes).*;
+                i.operand_stack.push(value);
+            },
+
             else => @panic("Not implemented"),
         }
         i.ip += 1;

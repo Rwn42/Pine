@@ -10,7 +10,7 @@ const Operation = @import("bytecode.zig").Operation;
 
 //TODO: Code cleanup
 //TODO: implement array / record initilization remember to reverse order
-//TODO: little interpreter for testing
+//TODO: nested arryas are double reversing thje arrays are in the right order their elements are not
 
 pub const IRError = error{
     Undeclared,
@@ -70,6 +70,7 @@ pub const IRGenerator = struct {
 
     pub fn generate_program(self: *Self) ![]Operation {
         defer self.deinit();
+        errdefer self.program.deinit();
         for (self.function_bodies) |f_decl| {
             var function_scope = Scope{
                 .start_ip = self.program.items.len,
@@ -89,7 +90,7 @@ pub const IRGenerator = struct {
             }
 
             for (f_decl.body) |stmt| {
-                StatementGenerator.generate(self, stmt) catch {};
+                try StatementGenerator.generate(self, stmt);
             }
         }
         return try self.program.toOwnedSlice();
@@ -121,9 +122,7 @@ pub const IRGenerator = struct {
         return try self.find_identifier(identifier_tk, idx - 1);
     }
 
-    //NOTE: assume params are placed on the stack in reverse order
-    //f(1, 2, 3) the stack is then 3 2 1 on operand stack
-    //NOTE: assume address to store to is also on the stack so f(1, 2, 3) 3 2 1 0 to store 1 at 0.
+    //NOTE: assume address is on the stack
     fn generate_stack_store(self: *Self, type_info: typing.TypeInfo, loc: Location) !void {
         switch (type_info.tag) {
             .Void => {
@@ -154,9 +153,47 @@ pub const IRGenerator = struct {
                     self.program_append(.add_i, null);
                     try self.generate_stack_store(field.type_info, loc);
                 }
-                return;
             },
-            else => @panic("cannot yet store type"),
+            else => @panic("cannot yet store/load type"),
+        }
+    }
+
+    fn generate_stack_load(self: *Self, type_info: typing.TypeInfo, loc: Location) !void {
+        switch (type_info.tag) {
+            .Void => {
+                std.log.err("Cannot have variable/field of type void {s}", .{loc});
+                return IRError.Syntax;
+            },
+            .Bool, .Byte, .Integer, .Float, .Pointer => {
+                self.program_append(if (type_info.size == 1) .load else .load8, null);
+            },
+            .Array => {
+                self.program_append(.gstore, null); //store the address into the gp reg
+                const element_type = (type_info.child orelse @panic("compiler error")).type_info;
+                const length = type_info.size / element_type.size;
+                var i: isize = @intCast(length);
+                while (i >= 0) : (i -= 1) {
+                    self.program_append(.gload, null);
+                    self.program_append(.push, element_type.size);
+                    self.program_append(.push, @bitCast(i));
+                    self.program_append(.mul_i, null);
+                    self.program_append(.add_i, null);
+                    try self.generate_stack_load(element_type.*, loc);
+                }
+            },
+            .Record => {
+                self.program_append(.gstore, null); //store the address into the gp reg
+                var infos = type_info.child.?.field_info.values();
+                std.mem.reverse(typing.FieldInfoStruct, infos);
+                for (infos) |field| {
+                    self.program_append(.gload, null);
+                    self.program_append(.push, field.offset);
+                    self.program_append(.add_i, null);
+                    try self.generate_stack_load(field.type_info, loc);
+                }
+                std.mem.reverse(typing.FieldInfoStruct, infos);
+            },
+            else => @panic("cannot yet store/load type"),
         }
     }
 
@@ -207,7 +244,7 @@ const ExpressionGenerator = struct {
             .IdentifierInvokation => |token| {
                 const info = try ir.find_identifier(token, ir.scope_stack.top_idx());
                 ir.program_append(.push, info.stack_loc);
-                ir.program_append(.load, null);
+                try ir.generate_stack_load(info.type_info, token.loc);
                 return info.type_info;
             },
             .ArrayInitialization => |list| {
@@ -216,17 +253,42 @@ const ExpressionGenerator = struct {
                 var start_ip = ir.program.items.len;
                 var list_o: ?*AST.ExprList = list;
                 var element_type = ir.tm.new_info();
-
+                var length: usize = 0;
                 while (list_o) |list_node| {
+                    length += 1;
                     element_type.* = try generate_rvalue(ir, list_node.expr);
                     list_o = list_node.next;
                 }
                 std.mem.reverse(Operation, ir.program.items[start_ip..]);
                 return .{
                     .tag = .Array,
-                    .size = ir.program.items[start_ip..].len * element_type.size,
+                    .size = length * element_type.size,
                     .child = .{ .type_info = element_type },
                 };
+            },
+            .RecordInitialization => |list| {
+                const typ = ir.tm.records.get(list.name_tk.tag.Identifier) orelse {
+                    std.log.err("Record type {s} is undefined {s}", .{ list.name_tk.tag.Identifier, list.name_tk.loc });
+                    return IRError.Undeclared;
+                };
+
+                //this is awfully slow
+                std.mem.reverse([]const u8, typ.child.?.field_info.keys());
+                outer: for (typ.child.?.field_info.keys()) |field_name| {
+                    var node_o: ?*AST.FieldList = list.fields;
+                    while (node_o) |ast_field| {
+                        if (std.mem.eql(u8, ast_field.field.tag.Identifier, field_name)) {
+                            //could do some type checking here
+                            _ = try ExpressionGenerator.generate_rvalue(ir, ast_field.expr);
+                            continue :outer;
+                        }
+                        node_o = ast_field.next;
+                    }
+                    std.log.err("Did not initialize field {s} {s}", .{ field_name, list.name_tk.loc });
+                    return IRError.Syntax;
+                }
+                std.mem.reverse([]const u8, typ.child.?.field_info.keys());
+                return typ;
             },
             else => @panic("Not implemented"),
         }
