@@ -247,19 +247,16 @@ const ExpressionGenerator = struct {
                 try ir.generate_stack_load(info.type_info, token.loc);
                 return info.type_info;
             },
-            .ArrayInitialization => |list| {
-                //arrays need to be placed in reverse order
-                //so save start location
-                var start_ip = ir.program.items.len;
+            .ArrayInitialization => |ordered_list| {
+                const list = reverse_expr_list(ordered_list);
+                var length: usize = 0;
                 var list_o: ?*AST.ExprList = list;
                 var element_type = ir.tm.new_info();
-                var length: usize = 0;
                 while (list_o) |list_node| {
                     length += 1;
                     element_type.* = try generate_rvalue(ir, list_node.expr);
                     list_o = list_node.next;
                 }
-                std.mem.reverse(Operation, ir.program.items[start_ip..]);
                 return .{
                     .tag = .Array,
                     .size = length * element_type.size,
@@ -367,3 +364,18 @@ const ExpressionGenerator = struct {
         }
     }
 };
+
+//reverse the linked list AST should probably just change but works for now.
+fn reverse_expr_list(list: *AST.ExprList) *AST.ExprList {
+    var current: ?*AST.ExprList = list;
+    var prev: ?*AST.ExprList = null;
+    var next: ?*AST.ExprList = null;
+
+    while (current) |curr_node| {
+        next = curr_node.next;
+        curr_node.next = prev;
+        prev = current;
+        current = next;
+    }
+    return prev.?;
+}
