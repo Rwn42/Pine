@@ -38,6 +38,7 @@ pub const IRGenerator = struct {
     scope_stack: ScopeStackType,
     tm: typing.TypeManager,
     function_bodies: []*AST.FunctionDeclarationNode,
+    functions: std.StringHashMap(usize), //function name to start_ip
     stack_pointer: usize,
 
     pub fn init(allocator: std.mem.Allocator, declarations: []AST.Declaration) !Self {
@@ -64,6 +65,7 @@ pub const IRGenerator = struct {
             .allocator = allocator,
             .scope_stack = ScopeStackType.init(),
             .tm = tm,
+            .functions = std.StringHashMap(usize).init(allocator),
             .stack_pointer = 0,
         };
     }
@@ -71,6 +73,8 @@ pub const IRGenerator = struct {
     pub fn generate_program(self: *Self) ![]Operation {
         defer self.deinit();
         errdefer self.program.deinit();
+        self.program_append(.push, 0);
+        self.program_append(.call, null);
         for (self.function_bodies) |f_decl| {
             var function_scope = Scope{
                 .start_ip = self.program.items.len,
@@ -80,6 +84,10 @@ pub const IRGenerator = struct {
             self.scope_stack.push(&function_scope);
             defer function_scope.identifiers.deinit();
             defer self.scope_stack.pop();
+
+            self.functions.put(f_decl.name_tk.tag.Identifier, function_scope.start_ip) catch {
+                @panic("FATAL COMPILER ERROR: Out of memory");
+            };
 
             var param_n = f_decl.params;
             while (param_n) |param| {
@@ -92,7 +100,18 @@ pub const IRGenerator = struct {
             for (f_decl.body) |stmt| {
                 try StatementGenerator.generate(self, stmt);
             }
+
+            if ((self.tm.functions.get(f_decl.name_tk.tag.Identifier).?).tag == .Void) {
+                self.program_append(.ret, null);
+            }
         }
+        const idx = self.functions.get("main") orelse {
+            std.log.err("no main function (main :: fn() {{...}})", .{});
+            return IRError.Undeclared;
+        };
+
+        self.program.items[0].operand = idx;
+
         return try self.program.toOwnedSlice();
     }
 
@@ -205,6 +224,7 @@ pub const IRGenerator = struct {
     fn deinit(self: *Self) void {
         self.allocator.free(self.function_bodies);
         self.tm.deinit();
+        self.functions.deinit();
     }
 };
 
@@ -214,6 +234,9 @@ const StatementGenerator = struct {
             .ReturnStatement => |stmt| {
                 _ = try ExpressionGenerator.generate_rvalue(ir, stmt);
                 ir.program_append(.ret, null);
+            },
+            .ExpressionStatement => |expr| {
+                _ = try ExpressionGenerator.generate_rvalue(ir, expr);
             },
             .VariableDeclaration => |stmt| {
                 if (stmt.typ == null) @panic("variable type inference not implemented");
@@ -276,7 +299,6 @@ const StatementGenerator = struct {
                 ir.program_append(.jmp, null);
                 ir.program.items[while_scope.start_ip].operand = ir.program.items.len;
             },
-            else => {},
         }
     }
 };
@@ -295,6 +317,23 @@ const ExpressionGenerator = struct {
             .LiteralBool => |token| {
                 ir.program_append(.push, if (token.tag == .True) 1 else 0);
                 return typing.Primitive.get("bool").?;
+            },
+            .FunctionInvokation => |expr| {
+                //push args onto stack
+                var list = reverse_expr_list(expr.args_list);
+                while (list) |list_node| {
+                    _ = try ExpressionGenerator.generate_rvalue(ir, list_node.expr);
+                    list = list_node.next;
+                }
+                const idx = ir.functions.get(expr.name_tk.tag.Identifier) orelse {
+                    std.log.err("Cannot find function {s}", .{expr.name_tk});
+                    return IRError.Undeclared;
+                };
+                ir.program_append(.push, idx);
+
+                ir.program_append(.call, ir.program.items.len + 1);
+
+                return ir.tm.functions.get(expr.name_tk.tag.Identifier).?;
             },
             .BinaryExpression => |expr| {
                 _ = try ExpressionGenerator.generate_rvalue(ir, expr.lhs);
@@ -482,7 +521,7 @@ const ExpressionGenerator = struct {
 };
 
 //reverse the linked list AST should probably just change but works for now.
-fn reverse_expr_list(list: *AST.ExprList) *AST.ExprList {
+fn reverse_expr_list(list: ?*AST.ExprList) ?*AST.ExprList {
     var current: ?*AST.ExprList = list;
     var prev: ?*AST.ExprList = null;
     var next: ?*AST.ExprList = null;
@@ -493,5 +532,5 @@ fn reverse_expr_list(list: *AST.ExprList) *AST.ExprList {
         prev = current;
         current = next;
     }
-    return prev.?;
+    return prev;
 }

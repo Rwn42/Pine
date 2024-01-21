@@ -97,7 +97,7 @@ pub fn main() !void {
         }
     }
 
-    var interpreter = Interpreter.init_from_program(program);
+    var interpreter = Interpreter.init_from_program(program, allocator);
     try interpreter.run();
     try bw.flush();
     try output_buffer.flush();

@@ -22,8 +22,9 @@ pub const Operation = struct {
         eq,
         not,
         jmp,
+        temp_print,
         je,
-        call,
+        call, //Operand is return address not call location
         ret,
     };
 

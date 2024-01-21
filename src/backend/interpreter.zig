@@ -4,66 +4,71 @@ const Operation = @import("bytecode.zig").Operation;
 const Stack = @import("../common.zig").Stack;
 
 const OperandStack = Stack(u64, 128, "Expression is too long");
+const CallStack = Stack(*StackFrame, 128, "Recursion Depth Reached");
 
 pub const InterpreterError = error{
     Done,
-    SomethingElse,
+    UnexpectedEnd,
+};
+
+pub const StackFrame = struct {
+    locals: [1024]u8,
+    return_addr: usize,
 };
 
 pub const Interpreter = struct {
     program: []Operation,
     operand_stack: OperandStack,
-    locals: [1024]u8,
+    call_stack: CallStack,
+    locals: *[1024]u8,
     ip: usize = 0,
+    allocator: std.mem.Allocator,
     temp_r: u64 = 0,
 
-    pub fn init_from_program(program: []Operation) Interpreter {
+    pub fn init_from_program(program: []Operation, allocator: std.mem.Allocator) Interpreter {
         return .{
             .program = program,
             .operand_stack = OperandStack.init(),
-            .locals = [_]u8{0} ** 1024,
+            .call_stack = CallStack.init(),
+            .allocator = allocator,
+            .locals = undefined,
         };
     }
 
     pub fn run(i: *Interpreter) !void {
         defer {
-            std.debug.print("\n \n \nLocals (0-31): ", .{});
-            for (i.locals[0..31]) |elem| {
-                std.debug.print("{d} ", .{elem});
-            }
-
-            std.debug.print("\nOperand Stack: ", .{});
-            for (i.operand_stack.buffer[0..i.operand_stack.sp]) |elem| {
-                std.debug.print("{d} ", .{elem});
-            }
+            i.print();
         }
         while (true) {
             run_inst(i) catch |e| {
                 switch (e) {
-                    InterpreterError.Done => return,
+                    InterpreterError.Done => {},
                     else => std.log.err("{any}", .{e}),
                 }
+                return;
             };
         }
     }
 
-    pub fn run_inst(i: *Interpreter) !void {
-        if (i.ip >= i.program.len) {
-            return InterpreterError.Done;
+    fn print(i: *Interpreter) void {
+        if (i.call_stack.sp > 0) {
+            std.debug.print("\n \n \nLocals (0-31): ", .{});
+            for (i.locals.*[0..31]) |elem| {
+                std.debug.print("{d} ", .{elem});
+            }
         }
-        const inst = i.program[i.ip];
 
         std.debug.print("\nOperand Stack: ", .{});
         for (i.operand_stack.buffer[0..i.operand_stack.sp]) |elem| {
             std.debug.print("{d} ", .{elem});
         }
+    }
 
-        std.debug.print("\nLocals (0-31): ", .{});
-        for (i.locals[0..31]) |elem| {
-            std.debug.print("{d} ", .{elem});
+    pub fn run_inst(i: *Interpreter) !void {
+        if (i.ip >= i.program.len) {
+            return InterpreterError.UnexpectedEnd;
         }
-
-        std.debug.print("\ntemp: {d}", .{i.temp_r});
+        const inst = i.program[i.ip];
 
         switch (inst.opc) {
             .push => {
@@ -120,16 +125,22 @@ pub const Interpreter = struct {
 
             .jmp => {
                 const loc = i.operand_stack.pop_ret();
-                i.ip = loc - 1;
+                i.ip = loc;
+                return;
             },
             .je => {
                 const loc = i.operand_stack.pop_ret();
                 const val = i.operand_stack.pop_ret();
                 if (inst.operand.? == 0) {
-                    if (val == 1) i.ip = loc - 1;
+                    if (val == 1) i.ip = loc;
                 } else {
-                    if (val != 1) i.ip = loc - 1;
+                    if (val != 1) i.ip = loc;
                 }
+                return;
+            },
+
+            .temp_print => {
+                std.debug.print("{d} \n", .{i.operand_stack.pop_ret()});
             },
 
             .not => {
@@ -147,25 +158,43 @@ pub const Interpreter = struct {
             .store => {
                 const position = i.operand_stack.pop_ret();
                 const value = i.operand_stack.pop_ret();
-                i.locals[position] = @as(u8, @intCast(value));
+                i.locals.*[position] = @as(u8, @intCast(value));
             },
             .store8 => {
                 const position = i.operand_stack.pop_ret();
                 const value = @as([8]u8, @bitCast(i.operand_stack.pop_ret()));
                 for (value, 0..) |byte, idx| {
-                    i.locals[position + idx] = byte;
+                    i.locals.*[position + idx] = byte;
                 }
             },
             .load => {
                 const position = i.operand_stack.pop_ret();
-                i.operand_stack.push(i.locals[position]);
+                i.operand_stack.push(i.locals.*[position]);
             },
             .load8 => {
                 const position = i.operand_stack.pop_ret();
                 var bytes: [8]u8 = [_]u8{0} ** 8;
-                std.mem.copy(u8, &bytes, i.locals[position .. position + 8]);
+                std.mem.copy(u8, &bytes, i.locals.*[position .. position + 8]);
                 const value = std.mem.bytesAsValue(u64, &bytes).*;
                 i.operand_stack.push(value);
+            },
+            .call => {
+                const stackFrame = i.allocator.create(StackFrame) catch {
+                    @panic("Out of memory!");
+                };
+                stackFrame.* = StackFrame{ .locals = [_]u8{0} ** 1024, .return_addr = inst.operand orelse 0 };
+                i.locals = &(stackFrame.locals);
+                const position = i.operand_stack.pop_ret();
+                i.call_stack.push(stackFrame);
+                i.ip = position;
+                return;
+            },
+            .ret => {
+                var frame = i.call_stack.pop_ret();
+                defer i.allocator.destroy(frame);
+                i.ip = frame.return_addr;
+                if (i.ip == 0) return InterpreterError.Done;
+                return;
             },
 
             else => @panic("Not implemented"),
