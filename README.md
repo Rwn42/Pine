@@ -71,8 +71,14 @@ p: ^int = &(^(&y)) //& is reference ^ is dereference and for pointer types
 get to a turing complete stage capable of printing hello, world!
 - [x] lexer
 - [x] parser
-- [ ] ir gen
-- [ ] interpreter
+- [x] ir gen
+- [x] interpreter
 - [ ] native compiler
 - [ ] type checking (may introduce another ast / ir)
 
+## Afterwords
+- [ ] File includes
+- [ ] Generics or similair concepts
+- [ ] Heap allocation
+- [ ] FFI (possibly for a print function)
+- [ ] namespacing ? 

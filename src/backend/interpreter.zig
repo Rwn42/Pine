@@ -3,8 +3,11 @@ const std = @import("std");
 const Operation = @import("bytecode.zig").Operation;
 const Stack = @import("../common.zig").Stack;
 
-const OperandStack = Stack(u64, 128, "Expression is too long");
+const OperandStack = Stack(u64, 1024, "Expression is too long");
 const CallStack = Stack(*StackFrame, 128, "Recursion Depth Reached");
+
+//TODO: Cleanup
+//TODO: look for simple optimizations
 
 pub const InterpreterError = error{
     Done,
@@ -36,9 +39,6 @@ pub const Interpreter = struct {
     }
 
     pub fn run(i: *Interpreter) !void {
-        defer {
-            i.print();
-        }
         while (true) {
             run_inst(i) catch |e| {
                 switch (e) {
@@ -53,7 +53,7 @@ pub const Interpreter = struct {
     fn print(i: *Interpreter) void {
         if (i.call_stack.sp > 0) {
             std.debug.print("\n \n \nLocals (0-31): ", .{});
-            for (i.locals.*[0..31]) |elem| {
+            for (i.locals.*[0..128]) |elem| {
                 std.debug.print("{d} ", .{elem});
             }
         }
@@ -69,7 +69,7 @@ pub const Interpreter = struct {
             return InterpreterError.UnexpectedEnd;
         }
         const inst = i.program[i.ip];
-
+        //print(i);
         switch (inst.opc) {
             .push => {
                 i.operand_stack.push(inst.operand.?);
@@ -132,15 +132,24 @@ pub const Interpreter = struct {
                 const loc = i.operand_stack.pop_ret();
                 const val = i.operand_stack.pop_ret();
                 if (inst.operand.? == 0) {
-                    if (val == 1) i.ip = loc;
+                    if (val == 1) {
+                        i.ip = loc;
+                        return;
+                    }
                 } else {
-                    if (val != 1) i.ip = loc;
+                    if (val != 1) {
+                        i.ip = loc;
+                        return;
+                    }
                 }
-                return;
             },
 
             .temp_print => {
-                std.debug.print("{d} \n", .{i.operand_stack.pop_ret()});
+                switch (inst.operand.?) {
+                    0 => std.debug.print("{d} \n", .{i.operand_stack.pop_ret()}),
+                    1 => std.debug.print("{c}", .{@as(u8, @intCast(i.operand_stack.pop_ret()))}),
+                    else => {},
+                }
             },
 
             .not => {

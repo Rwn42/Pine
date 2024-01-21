@@ -110,6 +110,7 @@ pub const Statement = union(enum) {
     VariableAssignment: *VariableAssignmentNode,
     IfStatement: *IfStatementNode,
     WhileStatement: *WhileStatementNode,
+    TemporaryPrint: Expression,
 
     pub fn format(self: Statement, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         switch (self) {
@@ -139,6 +140,9 @@ pub const Statement = union(enum) {
                 for (stmt.body) |stmt2| {
                     try stmt2.format(fmt, options, writer);
                 }
+            },
+            .TemporaryPrint => |expr| {
+                try writer.print("print {s}", .{expr});
             },
         }
     }

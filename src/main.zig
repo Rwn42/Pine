@@ -10,6 +10,9 @@ const Interpreter = @import("./backend/interpreter.zig").Interpreter;
 
 const MAX_FILE_BYTES = 1024 * 1024;
 
+//TODO: Cli fixes
+//TODO: readability clean up
+
 pub fn main() !void {
     //setting stuff up
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};

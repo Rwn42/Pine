@@ -14,6 +14,7 @@ const ParseError = error{
 };
 
 //TODO: skip failed parsing steps better (moving on to next token usually results in more errors anway)
+//TODO: move away from linked lists for nodes that shouldnt have it since most need to be reversed anyway
 
 pub const ParserState = struct {
     const Self = @This();
@@ -251,6 +252,10 @@ const StatementParser = struct {
                 try p.adv();
                 return try parse_conditional(p, false, initial.loc);
             },
+            .TempPrint => {
+                try p.adv();
+                return .{ .TemporaryPrint = try ExpressionParser.parse(p, .Semicolon) };
+            },
             .While => {
                 try p.adv();
                 return try parse_conditional(p, true, initial.loc);
@@ -374,10 +379,17 @@ const ExpressionParser = struct {
                 std.log.err("Array intialization must contain atleast one value near {s}", .{p.token});
                 return ParseError.UnexpectedToken;
             },
-            .Identifier => blk: {
+            .Identifier => |text| blk: {
                 break :blk switch (p.peek_token.tag) {
                     .Lparen => try parse_call(p),
-                    .Lbrace => try parse_record(p),
+                    .Lbrace => blk2: {
+                        //record must be Type{} no space allowed kind of hacky tho
+                        //TODO: fix this
+                        if (p.token.loc.col + text.len == p.peek_token.loc.col and p.token.loc.row == p.peek_token.loc.row) {
+                            break :blk2 try parse_record(p);
+                        }
+                        break :blk2 .{ .IdentifierInvokation = p.token };
+                    },
                     else => .{ .IdentifierInvokation = p.token },
                 };
             },

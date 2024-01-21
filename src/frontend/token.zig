@@ -21,6 +21,7 @@ pub const TokenType = union(enum) {
     Else,
     For,
     While,
+    TempPrint,
     KEYWORD_COUNT_END, // used to assert that the keywords map is exhaustive
 
     // Binary operators
@@ -66,6 +67,7 @@ pub const TokenType = union(enum) {
         .{ "for", .For },
         .{ "while", .While },
         .{ "return", .Return },
+        .{ "print", .TempPrint },
     });
 
     pub fn eq(t1: TokenType, t2: TokenType) bool {
@@ -106,6 +108,7 @@ pub const TokenType = union(enum) {
         .{ @tagName(TokenType.Lbracket), "[" },
         .{ @tagName(TokenType.Rbracket), "]" },
         .{ @tagName(TokenType.EOF), "End of File" },
+        .{ @tagName(TokenType.TempPrint), "Temporary Print" },
         .{ @tagName(TokenType.Equal), "=" },
     });
 

@@ -8,9 +8,14 @@ const typing = @import("typing.zig");
 const Stack = @import("../common.zig").Stack;
 const Operation = @import("bytecode.zig").Operation;
 
-//TODO: Code cleanup
-//TODO: implement array / record initilization remember to reverse order
-//TODO: nested arryas are double reversing thje arrays are in the right order their elements are not
+//TODO: Code re-factor and cleanup
+//TODO: compt time code execution
+//TODO: Slices or general fat pointer but maybe length is always needed
+//TODO: Strings
+//TODO: fix obscene amount of instructions generated for arrays
+//TODO: decide on how much type checking to do in this step, perhaps all of it?
+//TODO: assert array initialization matches specified length
+//TODO: solution for general load store that can work on stack and arbitrary memory address
 
 pub const IRError = error{
     Undeclared,
@@ -190,7 +195,7 @@ pub const IRGenerator = struct {
                 self.program_append(.gstore, null); //store the address into the gp reg
                 const element_type = (type_info.child orelse @panic("compiler error")).type_info;
                 const length = type_info.size / element_type.size;
-                var i: isize = @intCast(length);
+                var i: isize = @intCast(length - 1);
                 while (i >= 0) : (i -= 1) {
                     self.program_append(.gload, null);
                     self.program_append(.push, element_type.size);
@@ -298,6 +303,14 @@ const StatementGenerator = struct {
                 ir.program_append(.push, jump_back_ip);
                 ir.program_append(.jmp, null);
                 ir.program.items[while_scope.start_ip].operand = ir.program.items.len;
+            },
+            .TemporaryPrint => |expr| {
+                const t_info = try ExpressionGenerator.generate_rvalue(ir, expr);
+                if (t_info.tag == .Byte) {
+                    ir.program_append(.temp_print, 1);
+                } else {
+                    ir.program_append(.temp_print, 0);
+                }
             },
         }
     }
@@ -442,6 +455,11 @@ const ExpressionGenerator = struct {
                 std.mem.reverse([]const u8, typ.child.?.field_info.keys());
                 return typ;
             },
+            .AccessExpression => |expr| {
+                const info = try ExpressionGenerator.generate_lvalue(ir, input_expr);
+                try ir.generate_stack_load(info, expr.op.loc);
+                return info;
+            },
             else => @panic("Not implemented"),
         }
     }
@@ -474,8 +492,14 @@ const ExpressionGenerator = struct {
         switch (expr) {
             .IdentifierInvokation => |field_tk| {
                 if (input_info.tag != .Record) {
-                    std.log.err("cannot access a non record variable {s}", .{field_tk});
-                    return IRError.Syntax;
+                    if (input_info.tag != .Array) {
+                        std.log.err("Cannot access non array or record {s}", .{field_tk});
+                        return IRError.Syntax;
+                    }
+                    _ = try ExpressionGenerator.generate_rvalue(ir, expr);
+                    ir.program_append(.push, input_info.child.?.type_info.size);
+                    ir.program_append(.mul_i, 0);
+                    return input_info.child.?.type_info.*;
                 }
                 if (input_info.child.?.field_info.get(field_tk.tag.Identifier)) |field_info| {
                     ir.program_append(.push, field_info.offset);
