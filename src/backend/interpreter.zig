@@ -70,15 +70,74 @@ pub const Interpreter = struct {
                 i.operand_stack.push(inst.operand.?);
             },
             .mul_i => {
-                const a: i64 = @bitCast(i.operand_stack.pop_ret());
                 const b: i64 = @bitCast(i.operand_stack.pop_ret());
-                i.operand_stack.push(@bitCast((a * b)));
+                const a: i64 = @bitCast(i.operand_stack.pop_ret());
+                if (inst.operand.? == 1) {
+                    i.operand_stack.push(@bitCast((@divTrunc(a, b))));
+                } else {
+                    i.operand_stack.push(@bitCast((a * b)));
+                }
             },
             .add_i => {
-                const a: i64 = @bitCast(i.operand_stack.pop_ret());
                 const b: i64 = @bitCast(i.operand_stack.pop_ret());
-                i.operand_stack.push(@bitCast((a + b)));
+                const a: i64 = @bitCast(i.operand_stack.pop_ret());
+                if (inst.operand.? == 1) {
+                    i.operand_stack.push(@bitCast((a - b)));
+                } else {
+                    i.operand_stack.push(@bitCast((a + b)));
+                }
             },
+
+            .eq => {
+                const b = i.operand_stack.pop_ret();
+                const a = i.operand_stack.pop_ret();
+                if (inst.operand.? == 0) {
+                    i.operand_stack.push(if (a == b) 1 else 0);
+                } else {
+                    i.operand_stack.push(if (a == b) 0 else 1);
+                }
+            },
+
+            .lt_i => {
+                const b: i64 = @bitCast(i.operand_stack.pop_ret());
+                const a: i64 = @bitCast(i.operand_stack.pop_ret());
+                if (inst.operand.? == 0) {
+                    i.operand_stack.push(if (a < b) 1 else 0);
+                } else {
+                    i.operand_stack.push(if (a > b) 1 else 0);
+                }
+            },
+
+            .lte_i => {
+                const b: i64 = @bitCast(i.operand_stack.pop_ret());
+                const a: i64 = @bitCast(i.operand_stack.pop_ret());
+                if (inst.operand.? == 0) {
+                    i.operand_stack.push(if (a <= b) 1 else 0);
+                } else {
+                    i.operand_stack.push(if (a >= b) 1 else 0);
+                }
+            },
+
+            .jmp => {
+                const loc = i.operand_stack.pop_ret();
+                i.ip = loc - 1;
+            },
+            .je => {
+                const loc = i.operand_stack.pop_ret();
+                const val = i.operand_stack.pop_ret();
+                if (inst.operand.? == 0) {
+                    if (val == 1) i.ip = loc - 1;
+                } else {
+                    if (val != 1) i.ip = loc - 1;
+                }
+            },
+
+            .not => {
+                const a = i.operand_stack.pop_ret();
+                if (a != 1 and a != 0) @panic("Cannot negate a non boolean");
+                i.operand_stack.push(if (a == 1) 0 else 1);
+            },
+
             .gstore => {
                 i.temp_r = i.operand_stack.pop_ret();
             },

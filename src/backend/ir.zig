@@ -140,8 +140,8 @@ pub const IRGenerator = struct {
                     self.program_append(.gload, null);
                     self.program_append(.push, element_type.size);
                     self.program_append(.push, i);
-                    self.program_append(.mul_i, null);
-                    self.program_append(.add_i, null);
+                    self.program_append(.mul_i, 0);
+                    self.program_append(.add_i, 0);
                     try self.generate_stack_store(element_type.*, loc);
                 }
             },
@@ -150,7 +150,7 @@ pub const IRGenerator = struct {
                 for (type_info.child.?.field_info.values()) |field| {
                     self.program_append(.gload, null);
                     self.program_append(.push, field.offset);
-                    self.program_append(.add_i, null);
+                    self.program_append(.add_i, 0);
                     try self.generate_stack_store(field.type_info, loc);
                 }
             },
@@ -176,8 +176,8 @@ pub const IRGenerator = struct {
                     self.program_append(.gload, null);
                     self.program_append(.push, element_type.size);
                     self.program_append(.push, @bitCast(i));
-                    self.program_append(.mul_i, null);
-                    self.program_append(.add_i, null);
+                    self.program_append(.mul_i, 0);
+                    self.program_append(.add_i, 0);
                     try self.generate_stack_load(element_type.*, loc);
                 }
             },
@@ -188,7 +188,7 @@ pub const IRGenerator = struct {
                 for (infos) |field| {
                     self.program_append(.gload, null);
                     self.program_append(.push, field.offset);
-                    self.program_append(.add_i, null);
+                    self.program_append(.add_i, 0);
                     try self.generate_stack_load(field.type_info, loc);
                 }
                 std.mem.reverse(typing.FieldInfoStruct, infos);
@@ -229,17 +229,132 @@ const StatementGenerator = struct {
                 const type_info = try ExpressionGenerator.generate_lvalue(ir, stmt.lhs);
                 try ir.generate_stack_store(type_info, stmt.loc);
             },
+            .IfStatement => |stmt| {
+                const info = try ExpressionGenerator.generate_rvalue(ir, stmt.condition);
+                if (info.tag != .Bool) {
+                    std.log.info("Cannot branch on non-boolean type {s}", .{stmt.start_loc});
+                    return IRError.Syntax;
+                }
+
+                var if_scope = IRGenerator.Scope{
+                    .start_ip = ir.program.items.len,
+                    .identifiers = std.StringHashMap(VarInfo).init(ir.allocator),
+                };
+                ir.scope_stack.push(&if_scope);
+                defer if_scope.identifiers.deinit();
+                defer ir.scope_stack.pop();
+
+                ir.program_append(.push, 0);
+                ir.program_append(.je, 1);
+                for (stmt.body) |body_stmt| {
+                    try StatementGenerator.generate(ir, body_stmt);
+                }
+                ir.program.items[if_scope.start_ip].operand = ir.program.items.len;
+            },
+            .WhileStatement => |stmt| {
+                const jump_back_ip = ir.program.items.len;
+                const info = try ExpressionGenerator.generate_rvalue(ir, stmt.condition);
+                if (info.tag != .Bool) {
+                    std.log.info("Cannot branch on non-boolean type {s}", .{stmt.start_loc});
+                    return IRError.Syntax;
+                }
+
+                var while_scope = IRGenerator.Scope{
+                    .start_ip = ir.program.items.len,
+                    .identifiers = std.StringHashMap(VarInfo).init(ir.allocator),
+                };
+                ir.scope_stack.push(&while_scope);
+                defer while_scope.identifiers.deinit();
+                defer ir.scope_stack.pop();
+
+                ir.program_append(.push, 0);
+                ir.program_append(.je, 1);
+                for (stmt.body) |body_stmt| {
+                    try StatementGenerator.generate(ir, body_stmt);
+                }
+                ir.program_append(.push, jump_back_ip);
+                ir.program_append(.jmp, null);
+                ir.program.items[while_scope.start_ip].operand = ir.program.items.len;
+            },
             else => {},
         }
     }
 };
 
 const ExpressionGenerator = struct {
-    fn generate_rvalue(ir: *IRGenerator, input_expr: AST.Expression) !typing.TypeInfo {
+    fn generate_rvalue(ir: *IRGenerator, input_expr: AST.Expression) IRError!typing.TypeInfo {
         switch (input_expr) {
             .LiteralInt => |token| {
                 ir.program_append(.push, @bitCast(token.tag.Integer));
                 return typing.Primitive.get("int").?;
+            },
+            .LiteralFloat => |token| {
+                ir.program_append(.push, @bitCast(token.tag.Float));
+                return typing.Primitive.get("float").?;
+            },
+            .LiteralBool => |token| {
+                ir.program_append(.push, if (token.tag == .True) 1 else 0);
+                return typing.Primitive.get("bool").?;
+            },
+            .BinaryExpression => |expr| {
+                _ = try ExpressionGenerator.generate_rvalue(ir, expr.lhs);
+                const ti = try ExpressionGenerator.generate_rvalue(ir, expr.rhs);
+
+                switch (expr.op.tag) {
+                    .Plus => ir.program_append(.add_i, 0),
+                    .Dash => ir.program_append(.add_i, 1),
+                    .Asterisk => ir.program_append(.mul_i, 0),
+                    .SlashForward => ir.program_append(.mul_i, 1),
+                    .DoubleEqual => ir.program_append(.eq, 0),
+                    .NotEqual => ir.program_append(.eq, 1),
+                    .LessThan => ir.program_append(.lt_i, 0),
+                    .LessThanEqual => ir.program_append(.lte_i, 0),
+                    .GreaterThan => ir.program_append(.lt_i, 1),
+                    .GreaterThanEqual => ir.program_append(.lte_i, 1),
+
+                    else => unreachable,
+                }
+
+                switch (expr.op.tag) {
+                    .DoubleEqual, .NotEqual, .LessThan, .LessThanEqual, .GreaterThan, .GreaterThanEqual => {
+                        return typing.Primitive.get("bool").?;
+                    },
+                    else => {},
+                }
+                return ti;
+            },
+            .UnaryExpression => |expr| {
+                switch (expr.op.tag) {
+                    .Ampersand => {
+                        return try ExpressionGenerator.generate_lvalue(ir, expr.expr);
+                    },
+                    .Hat => {
+                        const ti_info = try ExpressionGenerator.generate_rvalue(ir, expr.expr);
+                        if (ti_info.tag != .Pointer) {
+                            std.log.err("Cannot dereference a non pointer {s}", .{expr.op});
+                            return IRError.Syntax;
+                        }
+                        try ir.generate_stack_load(ti_info.child.?.type_info.*, expr.op.loc);
+                        return ti_info.child.?.type_info.*;
+                    },
+                    .ExclamationMark => {
+                        _ = try ExpressionGenerator.generate_rvalue(ir, expr.expr);
+                        ir.program_append(.not, null);
+                        return typing.Primitive.get("bool").?;
+                    },
+                    .Dash => {
+                        const ti_info = try ExpressionGenerator.generate_rvalue(ir, expr.expr);
+                        const multiplier: i64 = -1;
+                        ir.program_append(.push, @bitCast(multiplier));
+                        if (ti_info.tag == .Float) {
+                            ir.program_append(.mul_f, 0);
+                        } else {
+                            ir.program_append(.mul_i, 0);
+                        }
+                        return ti_info;
+                    },
+                    else => unreachable,
+                }
             },
             .IdentifierInvokation => |token| {
                 const info = try ir.find_identifier(token, ir.scope_stack.top_idx());
@@ -247,6 +362,7 @@ const ExpressionGenerator = struct {
                 try ir.generate_stack_load(info.type_info, token.loc);
                 return info.type_info;
             },
+
             .ArrayInitialization => |ordered_list| {
                 const list = reverse_expr_list(ordered_list);
                 var length: usize = 0;
@@ -301,7 +417,7 @@ const ExpressionGenerator = struct {
             .AccessExpression => |expr| {
                 const initial_info = try ExpressionGenerator.generate_lvalue(ir, expr.lhs);
                 const type_info = try ExpressionGenerator.generate_access_r(ir, expr.rhs, initial_info);
-                ir.program_append(.add_i, null);
+                ir.program_append(.add_i, 0);
                 return type_info;
             },
             .UnaryExpression => |expr| {
@@ -334,13 +450,13 @@ const ExpressionGenerator = struct {
                     .Record => {
                         const rhs_input_info = try generate_access_r(ir, a_expr.lhs, input_info);
                         const rhs_info = try generate_access_r(ir, a_expr.rhs, rhs_input_info);
-                        ir.program_append(.add_i, null);
+                        ir.program_append(.add_i, 0);
                         return rhs_info;
                     },
                     .Array => {
                         _ = try generate_access_r(ir, a_expr.lhs, input_info);
                         const rhs_info = try generate_access_r(ir, a_expr.rhs, input_info.child.?.type_info.*);
-                        ir.program_append(.add_i, null);
+                        ir.program_append(.add_i, 0);
                         return rhs_info;
                     },
                     else => {
@@ -358,7 +474,7 @@ const ExpressionGenerator = struct {
                 }
                 _ = try ExpressionGenerator.generate_rvalue(ir, expr);
                 ir.program_append(.push, input_info.child.?.type_info.size);
-                ir.program_append(.mul_i, null);
+                ir.program_append(.mul_i, 0);
                 return input_info.child.?.type_info.*;
             },
         }

@@ -93,17 +93,19 @@ pub const Lexer = struct {
             '0' => blk: {
                 const c = self.peek() orelse break :blk .{ .Integer = 0 };
                 if (std.ascii.isDigit(c)) break :blk self.lex_number(10) catch return null;
-                self.adv();
                 break :blk switch (c) {
                     'x' => blk_inner: {
+                        self.adv();
                         self.adv();
                         break :blk_inner self.lex_number(16) catch return null;
                     },
                     'b' => blk_inner: {
                         self.adv();
+                        self.adv();
                         break :blk_inner self.lex_number(2) catch return null;
                     },
                     'o' => blk_inner: {
+                        self.adv();
                         self.adv();
                         break :blk_inner self.lex_number(8) catch return null;
                     },
