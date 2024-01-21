@@ -24,7 +24,8 @@ Osmium is not a expression based language the semantics of if statements and whi
 Semicolons are mandatory after expressions but i may switch to semicolon or newlines down the road.
 
 ```odin
-if x < 2 {
+//note the space after the y is MANDATORY for now
+if x < Y {
     return 5;
 }
 
@@ -71,8 +72,8 @@ p: ^int = &(^(&y)) //& is reference ^ is dereference and for pointer types
 get to a turing complete stage capable of printing hello, world!
 - [x] lexer
 - [x] parser
-- [x] ir gen
-- [x] interpreter
+- [x] ir gen broken currently due to refactoring
+- [x] interpreter  broken currently due to refactoring
 - [ ] native compiler
 - [ ] type checking (may introduce another ast / ir)
 

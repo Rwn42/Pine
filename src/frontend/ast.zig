@@ -4,12 +4,11 @@ const Location = @import("../common.zig").Location;
 const Token = @import("token.zig").Token;
 const TokenType = @import("token.zig").TokenType;
 
-//TODO: Array length should just be an expression not a token thats dumb implement after intepreter is done tho
-
 pub const DefinedType = union(enum) {
     Array: *ArrayType,
     Pointer: *PointerType,
     Basic: Token,
+    WidePointer: *PointerType,
 
     pub fn format(self: DefinedType, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = fmt;
@@ -21,6 +20,9 @@ pub const DefinedType = union(enum) {
             .Pointer => |pointing| {
                 try writer.print("^{s}", .{pointing.pointing_to});
             },
+            .WidePointer => |pointing| {
+                try writer.print("[]{s}", .{pointing.pointing_to});
+            },
             .Basic => |tk| try writer.print("{s}", .{tk}),
         }
     }
@@ -31,7 +33,7 @@ pub const PointerType = struct {
 };
 
 pub const ArrayType = struct {
-    length: Token, //must be integer or identifier that would map to a cosntant value
+    length: Expression,
     element_typ: DefinedType,
 };
 

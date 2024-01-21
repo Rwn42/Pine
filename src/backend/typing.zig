@@ -74,6 +74,7 @@ pub const TypeManager = struct {
                 };
             },
             .Array => |arr| blk: {
+                if (1 == 1) return Primitive.get("int").?;
                 if (!TokenType.eq(arr.length.tag, .{ .Integer = 0 })) @panic("Const array lenght not implemented");
                 var child = self.new_info();
                 child.* = try self.generate(arr.element_typ);
@@ -83,6 +84,7 @@ pub const TypeManager = struct {
                     .child = .{ .type_info = child },
                 };
             },
+            else => @panic("not implemented"),
         };
     }
 

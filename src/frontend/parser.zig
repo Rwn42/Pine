@@ -13,7 +13,6 @@ const ParseError = error{
     NotEnoughData,
 };
 
-//TODO: skip failed parsing steps better (moving on to next token usually results in more errors anway)
 //TODO: move away from linked lists for nodes that shouldnt have it since most need to be reversed anyway
 
 pub const ParserState = struct {
@@ -99,6 +98,17 @@ pub const ParserState = struct {
         };
     }
 
+    //used for skipping code with syntax errors hopefully to the next valid sequence
+    fn skip_to_semicolon(p: *ParserState) ?void {
+        p.adv() catch return null;
+        if (p.token.tag == .EOF) return null;
+        if (p.token.tag == .Semicolon) {
+            p.adv() catch return null;
+            return;
+        }
+        return skip_to_semicolon(p);
+    }
+
     pub fn deinit(self: *Self) void {
         self.node_arena.deinit();
     }
@@ -167,7 +177,11 @@ pub const DeclarationParser = struct {
         _ = try p.assert_token_is(.Lbrace);
 
         while (!TokenType.eq(p.token.tag, TokenType.Rbrace)) {
-            body.append(try StatementParser.parse(p)) catch {
+            const stmt = StatementParser.parse(p) catch {
+                p.skip_to_semicolon() orelse break;
+                continue;
+            };
+            body.append(stmt) catch {
                 @panic("FATAL COMPILER ERROR: Out of memory");
             };
         }
@@ -211,14 +225,16 @@ pub const TypeParser = struct {
                 return .{ .Pointer = new_node };
             },
             .Lbracket => {
-                const new_node = p.new_node(AST.ArrayType);
-                const length = p.token;
-                if (!(TokenType.eq(length.tag, .{ .Integer = 0 })) and !(TokenType.eq(length.tag, .{ .Identifier = "" }))) {
-                    std.log.err("array length must be an integer or constant value got {s}", .{p.token});
-                    return ParseError.UnexpectedToken;
+                //wide pointer []type
+                if (p.token.tag == .Rbracket) {
+                    try p.adv();
+                    const new_node = p.new_node(AST.PointerType);
+                    new_node.pointing_to = try parse(p);
+                    return .{ .WidePointer = new_node };
                 }
-                try p.expect_delimiter(.Rbracket);
-
+                //array type [...]type
+                const new_node = p.new_node(AST.ArrayType);
+                const length = try ExpressionParser.parse(p, .Rbracket);
                 new_node.length = length;
                 new_node.element_typ = try parse(p);
 
@@ -311,7 +327,10 @@ const StatementParser = struct {
         var body = std.ArrayList(AST.Statement).init(p.node_arena.allocator());
 
         while (!TokenType.eq(p.token.tag, .Rbrace)) {
-            const s = try StatementParser.parse(p);
+            const s = StatementParser.parse(p) catch {
+                p.skip_to_semicolon() orelse break;
+                continue;
+            };
             body.append(s) catch {
                 @panic("FATAL COMPILER ERROR: Out of memory");
             };
@@ -388,8 +407,7 @@ const ExpressionParser = struct {
                 break :blk switch (p.peek_token.tag) {
                     .Lparen => try parse_call(p),
                     .Lbrace => blk2: {
-                        //record must be Type{} no space allowed kind of hacky tho
-                        //TODO: fix this
+                        //only parse a record if you have x{, x { is not considered a record but is a block
                         if (p.token.loc.col + text.len == p.peek_token.loc.col and p.token.loc.row == p.peek_token.loc.row) {
                             break :blk2 try parse_record(p);
                         }
