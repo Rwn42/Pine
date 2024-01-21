@@ -2,6 +2,7 @@ const std = @import("std");
 
 const AST = @import("../frontend/ast.zig");
 const IRError = @import("ir.zig").IRError;
+const ir = @import("ir.zig");
 
 const TokenType = @import("../frontend/token.zig").TokenType;
 const Token = @import("../frontend/token.zig").Token;
@@ -74,12 +75,14 @@ pub const TypeManager = struct {
                 };
             },
             .Array => |arr| blk: {
-                if (1 == 1) return Primitive.get("int").?;
-                if (!TokenType.eq(arr.length.tag, .{ .Integer = 0 })) @panic("Const array lenght not implemented");
+                const length = switch (arr.length) {
+                    .LiteralInt => |token| @as(usize, @intCast(token.tag.Integer)),
+                    else => 1,
+                };
                 var child = self.new_info();
                 child.* = try self.generate(arr.element_typ);
                 break :blk .{
-                    .size = child.size * @as(usize, @intCast(arr.length.tag.Integer)),
+                    .size = child.size * length,
                     .tag = .Array,
                     .child = .{ .type_info = child },
                 };
