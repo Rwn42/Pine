@@ -90,6 +90,16 @@ pub const Lexer = struct {
                 var text = self.contents[start_idx .. self.pos + 1];
                 break :blk TokenType.Keywords.get(text) orelse .{ .Identifier = self.sm.alloc(text) };
             },
+            '#' => blk: {
+                const start_idx = self.pos;
+                self.adv();
+                self.adv_while(is_num_or_ident);
+                var text = self.contents[start_idx .. self.pos + 1];
+                break :blk TokenType.Keywords.get(text) orelse {
+                    std.log.err("Directive {s} does not exist at {s}", .{ text, cwt.loc });
+                    return null;
+                };
+            },
             '0' => blk: {
                 const c = self.peek() orelse break :blk .{ .Integer = 0 };
                 if (std.ascii.isDigit(c)) break :blk self.lex_number(10) catch return null;

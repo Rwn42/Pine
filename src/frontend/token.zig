@@ -20,6 +20,8 @@ pub const TokenType = union(enum) {
     If,
     Else,
     For,
+    Cast,
+    Import,
     While,
     TempPrint,
     KEYWORD_COUNT_END, // used to assert that the keywords map is exhaustive
@@ -67,7 +69,9 @@ pub const TokenType = union(enum) {
         .{ "for", .For },
         .{ "while", .While },
         .{ "return", .Return },
-        .{ "print", .TempPrint },
+        .{ "#cast", .Cast },
+        .{ "#import", .Import },
+        .{ "#print", .TempPrint },
     });
 
     pub fn eq(t1: TokenType, t2: TokenType) bool {
@@ -108,7 +112,9 @@ pub const TokenType = union(enum) {
         .{ @tagName(TokenType.Lbracket), "[" },
         .{ @tagName(TokenType.Rbracket), "]" },
         .{ @tagName(TokenType.EOF), "End of File" },
-        .{ @tagName(TokenType.TempPrint), "Temporary Print" },
+        .{ @tagName(TokenType.TempPrint), "#print" },
+        .{ @tagName(TokenType.Cast), "#cast" },
+        .{ @tagName(TokenType.Import), "#import" },
         .{ @tagName(TokenType.Equal), "=" },
     });
 

@@ -4,58 +4,50 @@ const lexing = @import("./frontend/lexer.zig");
 const parsing = @import("./frontend/parser.zig");
 const Token = @import("./frontend/token.zig").Token;
 const TokenType = @import("./frontend/token.zig").TokenType;
+
 const StringManager = @import("common.zig").StringManager;
+
 const ir = @import("backend/ir.zig");
 const Interpreter = @import("./backend/interpreter.zig").Interpreter;
+const Operation = @import("./backend/bytecode.zig").Operation;
 
 const MAX_FILE_BYTES = 1024 * 1024;
 
-//TODO: Cli fixes
-//TODO: readability clean up
-
 pub fn main() !void {
-    //setting stuff up
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
     defer _ = gpa.deinit();
 
+    //prepare stdout writer
     const stdout_file = std.io.getStdOut().writer();
     var bw = std.io.bufferedWriter(stdout_file);
+    defer bw.flush() catch {};
     const stdout = bw.writer();
 
-    errdefer bw.flush() catch {};
-
-    //read in cli options
+    //load in CLI
     var args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
-
     const cli_options = CLIOptions.create(args) catch |err| {
         switch (err) {
             CLIOptions.CLIError.NoInput => std.log.err("No input file provided", .{}),
             CLIOptions.CLIError.NoOutput => std.log.err("No output file provided after -o", .{}),
-            CLIOptions.CLIError.ConflictingFlag => std.log.err("Two compiler flags conflict... cannot use -l and -p", .{}),
+            CLIOptions.CLIError.ConflictingFlag => std.log.err("Two compiler flags conflict... cannot use -lex and -parse", .{}),
         }
         try usage(stdout);
-        try bw.flush();
         return;
     };
 
-    //prepare buffers and string manager
-
+    //open the output file for writing
     const output_fd = std.fs.cwd().createFile(cli_options.output_file, .{}) catch {
         std.log.err("Output file {s} could not be created", .{cli_options.output_file});
         return;
     };
     defer output_fd.close();
-
     var output_buffer = std.io.bufferedWriter(output_fd.writer());
+    defer output_buffer.flush() catch {};
     const output_writer = output_buffer.writer();
 
-    errdefer output_buffer.flush() catch {};
-
-    var sm = StringManager.init(allocator);
-    defer sm.destroy();
-
+    //open the input file for reading
     const file_buffer = std.fs.cwd().readFileAlloc(allocator, cli_options.input_file, MAX_FILE_BYTES) catch |err| {
         switch (err) {
             error.FileTooBig => std.log.err("File {s} is to big try splitting your program into more files.", .{cli_options.input_file}),
@@ -63,58 +55,59 @@ pub fn main() !void {
         }
         return;
     };
-    defer allocator.free(file_buffer); //eventually we can free this after the ast is done instead of after program
-
     if (file_buffer.len == 0) {
         std.log.err("File {s} was found but is empty", .{cli_options.input_file});
         return;
     }
 
     //compilation begins here
+    std.log.info("Parsing...", .{});
+
+    var sm = StringManager.init(allocator);
+    defer sm.destroy();
 
     var l = lexing.Lexer.init(file_buffer, cli_options.input_file, &sm) orelse return;
     if (cli_options.lex_only) {
         try print_lexer(output_writer, &l);
-        try output_buffer.flush();
         return;
     }
 
     var p = parsing.ParserState.init(&l, allocator) orelse return;
     p.parse();
+    allocator.free(file_buffer);
     defer p.deinit();
 
     if (cli_options.parse_only) {
         try print_parser(output_writer, &p);
-        try output_buffer.flush();
         return;
     }
+
+    std.log.info("Generating IR...", .{});
 
     var irgen = try ir.IRGenerator.init(allocator, p.top_level);
     const program = try irgen.generate_program();
     defer allocator.free(program);
 
     if (cli_options.output_ir) {
-        for (program) |op| {
-            try output_writer.print("{any} \n", .{op});
-            try output_buffer.flush();
-        }
+        try print_ir(output_writer, program);
+        return;
     }
+
+    std.log.info("Interpreting...", .{});
 
     var interpreter = Interpreter.init_from_program(program, allocator);
     try interpreter.run();
-    try bw.flush();
-    try output_buffer.flush();
 }
 
 //wanted to use argIterator here but i couldnt get it to work
 const CLIOptions = struct {
     input_file: []const u8,
     output_file: []const u8,
-    pos: usize,
-    lex_only: bool,
-    parse_only: bool,
-    native: bool,
-    output_ir: bool,
+    pos: usize = 1,
+    lex_only: bool = false,
+    parse_only: bool = false,
+    native: bool = false,
+    output_ir: bool = false,
 
     pub const CLIError = error{
         NoInput,
@@ -126,14 +119,7 @@ const CLIOptions = struct {
         var opt = CLIOptions{
             .input_file = undefined,
             .output_file = "default",
-            .pos = 0,
-            .lex_only = false,
-            .parse_only = false,
-            .native = false,
-            .output_ir = false,
         };
-
-        opt.pos += 1; //skip program name
 
         if (opt.pos >= args.len) return CLIError.NoInput;
         opt.input_file = args[opt.pos];
@@ -144,13 +130,13 @@ const CLIOptions = struct {
                 opt.pos += 1;
                 if (opt.pos >= args.len) return CLIError.NoOutput;
                 opt.output_file = args[opt.pos];
-            } else if (std.mem.eql(u8, "-l", args[opt.pos])) {
+            } else if (std.mem.eql(u8, "-lex", args[opt.pos])) {
                 if (opt.parse_only) return CLIError.ConflictingFlag;
                 opt.lex_only = true;
-            } else if (std.mem.eql(u8, "-p", args[opt.pos])) {
+            } else if (std.mem.eql(u8, "-parse", args[opt.pos])) {
                 if (opt.lex_only) return CLIError.ConflictingFlag;
                 opt.parse_only = true;
-            } else if (std.mem.eql(u8, "-cc", args[opt.pos])) {
+            } else if (std.mem.eql(u8, "-native", args[opt.pos])) {
                 opt.native = true;
             } else if (std.mem.eql(u8, "-ir", args[opt.pos])) {
                 opt.output_ir = true;
@@ -165,11 +151,11 @@ fn usage(writer: anytype) !void {
     try writer.print("Usage: osmium [main_file] [flags]\n", .{});
     try writer.print("  flags:\n", .{});
     try writer.print("  -o [output file]: specify an output file follow this flag with a filename\n", .{});
-    try writer.print("  -cc: compile to native code\n", .{});
-    try writer.print("  -l: only perform lexical analysis (mainly for compiler debugging purposes)\n", .{});
-    try writer.print("  -p: only generate the AST (mainly for compiler debugging purposes)\n", .{});
-    try writer.print("          -ir: output textual representation of intermediate representation\n", .{});
-    try writer.print("ex: osmium main.os -cc -o hello.exe\n", .{});
+    try writer.print("  -native: compile to native code\n", .{});
+    try writer.print("  -lex: ONLY perform lexical analysis (mainly for compiler debugging purposes)\n", .{});
+    try writer.print("  -parse: ONLY generate the AST (mainly for compiler debugging purposes)\n", .{});
+    try writer.print("  -ir: ONLY output textual representation of intermediate representation\n", .{});
+    try writer.print("ex: osmium main.os -native -o hello.exe\n", .{});
 }
 
 fn print_lexer(writer: anytype, l: *lexing.Lexer) !void {
@@ -182,5 +168,11 @@ fn print_lexer(writer: anytype, l: *lexing.Lexer) !void {
 fn print_parser(writer: anytype, p: *parsing.ParserState) !void {
     for (p.top_level) |decl| {
         try writer.print("{any} \n", .{decl});
+    }
+}
+
+fn print_ir(writer: anytype, program: []Operation) !void {
+    for (program) |op| {
+        try writer.print("{any} \n", .{op});
     }
 }
