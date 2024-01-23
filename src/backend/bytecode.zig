@@ -1,13 +1,5 @@
 const std = @import("std");
 
-// a: [5]byte = [1, 2, 3, 4]
-// b: []byte = store
-//
-//
-//
-//
-//
-
 pub const Operation = struct {
     pub const Opcode = enum(u8) {
         load, //load a value from address which is at the top of the stack

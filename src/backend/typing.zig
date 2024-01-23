@@ -9,6 +9,8 @@ const Token = @import("../frontend/token.zig").Token;
 
 const IdTypeMap = std.StringHashMap(TypeInfo);
 
+//NOTE: A string is a wide pointer (slice) of bytes
+
 pub const Primitive = std.ComptimeStringMap(TypeInfo, .{
     .{ "int", .{ .size = 8, .tag = .Integer, .child = null } },
     .{ "float", .{ .size = 8, .tag = .Float, .child = null } },
@@ -20,12 +22,12 @@ pub const Primitive = std.ComptimeStringMap(TypeInfo, .{
 pub const TypeTag = enum {
     Pointer,
     Array,
+    WidePointer,
     Record,
     Integer,
     Byte,
     Float,
     Bool,
-    String,
     Void,
 };
 
@@ -62,6 +64,10 @@ pub const TypeManager = struct {
             .Basic => |typ| {
                 if (Primitive.get(typ.tag.Identifier)) |info| return info;
                 if (self.records.get(typ.tag.Identifier)) |info| return info;
+                if (std.mem.eql(u8, typ.tag.Identifier, "string")) {
+                    return try self.generate_wide_pointer(Primitive.get("byte").?);
+                }
+
                 std.log.err("Undeclared type {s}", .{typ});
                 return IRError.Undeclared;
             },
@@ -75,6 +81,7 @@ pub const TypeManager = struct {
                 };
             },
             .Array => |arr| blk: {
+                //TODO: comptime array length;
                 const length = switch (arr.length) {
                     .LiteralInt => |token| @as(usize, @intCast(token.tag.Integer)),
                     else => 1,
@@ -87,7 +94,23 @@ pub const TypeManager = struct {
                     .child = .{ .type_info = child },
                 };
             },
-            else => @panic("not implemented"),
+            .WidePointer => |wp| try self.generate_wide_pointer(try self.generate(wp.pointing_to)),
+        };
+    }
+
+    fn generate_wide_pointer(self: *Self, child_type_info: TypeInfo) !TypeInfo {
+        const map = self.arena.allocator().create(FieldInfo) catch {
+            @panic("FATAL COMPILER ERROR: Out of memory");
+        };
+        map.* = FieldInfo.init(self.arena.allocator());
+        const data_field = FieldInfoStruct{ .offset = 0, .type_info = child_type_info };
+        const length_field = FieldInfoStruct{ .offset = 8, .type_info = Primitive.get("int").? };
+        map.put("data_ptr", data_field) catch @panic("FATAL COMPILER ERROR: Out of memory");
+        map.put("length", length_field) catch @panic("FATAL COMPILER ERROR: Out of memory");
+        return .{
+            .size = 16,
+            .tag = .WidePointer,
+            .child = .{ .field_info = map },
         };
     }
 

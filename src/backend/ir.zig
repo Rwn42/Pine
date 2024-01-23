@@ -17,8 +17,6 @@ const Operation = @import("bytecode.zig").Operation;
 //TODO: assert array initialization matches specified length
 //TODO: solution for general load store that can work on stack and arbitrary memory address
 
-// x :: 33223;
-// f
 pub const IRError = error{
     Undeclared,
     Mismatch,
