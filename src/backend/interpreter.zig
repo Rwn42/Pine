@@ -1,5 +1,10 @@
 const std = @import("std");
 
+//Interpreter Structure
+//mostly stack based
+//operand stack is a bunch of u64 which will be casted to floats or signed ints dependant on instruction
+//locals is an array of bytes the first 8 bytes should be reserved for garbage  like this _ = hello();
+
 const Operation = @import("bytecode.zig").Operation;
 const Stack = @import("../common.zig").Stack;
 
@@ -177,10 +182,10 @@ pub const Interpreter = struct {
                 if (a != 1 and a != 0) @panic("Cannot negate a non boolean");
                 i.operand_stack.push(if (a == 1) 0 else 1);
             },
-            .gstore => {
+            .tstore => {
                 i.temp_r = i.operand_stack.pop_ret();
             },
-            .gload => {
+            .tload => {
                 i.operand_stack.push(i.temp_r);
             },
             .store => {
@@ -224,6 +229,7 @@ pub const Interpreter = struct {
                 if (i.ip == 0) return InterpreterError.Done;
                 return;
             },
+            else => {},
         }
         i.ip += 1;
     }

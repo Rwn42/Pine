@@ -12,7 +12,7 @@ print_string :: fn(s: String) void {
 }
 
 main :: fn() void {
-    buf: [16]byte;
+    buf: [16]byte = 0;
     buf.0 = 72;
     buf.1 = 101;
     buf.2 = 108;

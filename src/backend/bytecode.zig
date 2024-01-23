@@ -1,13 +1,23 @@
 const std = @import("std");
 
+// a: [5]byte = [1, 2, 3, 4]
+// b: []byte = store
+//
+//
+//
+//
+//
+
 pub const Operation = struct {
     pub const Opcode = enum(u8) {
         load, //load a value from address which is at the top of the stack
         load8, //load a 8 byte value from address which is at the top of the stack
         store, //store a value from address which is at the top of the stack (value is second to the top)
         store8, //store a 8 byte value from address which is at the top of the stack (value is second to the top)
-        gload, //load value from general purpose register for now just an address
-        gstore, //store value into general purpose register
+        astore, //store array of element size operand
+        aload, //load array of element size operand
+        tload, //load temp register onto operand stack
+        tstore, //store top of stack onto temp register
         push, //operand is 8 byte number which is the data to push
         add_i, //operand controls sign anything but 0 for subtraction
         add_f, //operand controls sign anything but 0 for subtraction

@@ -302,7 +302,7 @@ const StatementParser = struct {
     fn parse_var_decl(p: *ParserState, name_tk: Token) !AST.Statement {
         var node = p.new_node(AST.VariableDeclarationNode);
         node.name_tk = name_tk;
-        node.assignment = null;
+        node.assignment = undefined;
         node.typ = null;
 
         if (TokenType.eq(p.token.tag, .Equal)) { // x := <expr>
@@ -310,12 +310,8 @@ const StatementParser = struct {
             node.assignment = try ExpressionParser.parse(p, .Semicolon);
         } else { // x: <type>
             node.typ = try TypeParser.parse(p);
-            if (TokenType.eq(p.token.tag, .Equal)) { // x : <type> = <expr>
-                try p.adv();
-                node.assignment = try ExpressionParser.parse(p, .Semicolon);
-            } else { //x : <type>;
-                _ = try p.assert_token_is(.Semicolon);
-            }
+            _ = try p.assert_token_is(.Equal);
+            node.assignment = try ExpressionParser.parse(p, .Semicolon);
         }
 
         return .{ .VariableDeclaration = node };

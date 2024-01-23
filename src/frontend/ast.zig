@@ -127,9 +127,7 @@ pub const Statement = union(enum) {
             .VariableDeclaration => |decl| {
                 try writer.print("variable declaration: {s} ", .{decl.name_tk.tag});
                 if (decl.typ) |typ| try writer.print("type: {s} ", .{typ});
-                if (decl.assignment) |expr| {
-                    try writer.print("body: {s}", .{expr});
-                }
+                try writer.print("body: {s}", .{decl.assignment});
             },
             .VariableAssignment => |decl| {
                 try writer.print("variable assignment: {s} {s}", .{ decl.lhs, decl.loc });
@@ -157,7 +155,7 @@ pub const Statement = union(enum) {
 pub const VariableDeclarationNode = struct {
     name_tk: Token,
     typ: ?DefinedType,
-    assignment: ?Expression,
+    assignment: Expression,
 };
 
 pub const VariableAssignmentNode = struct {

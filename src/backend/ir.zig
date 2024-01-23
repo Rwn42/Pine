@@ -17,6 +17,8 @@ const Operation = @import("bytecode.zig").Operation;
 //TODO: assert array initialization matches specified length
 //TODO: solution for general load store that can work on stack and arbitrary memory address
 
+// x :: 33223;
+// f
 pub const IRError = error{
     Undeclared,
     Mismatch,
@@ -86,7 +88,7 @@ pub const IRGenerator = struct {
                 .start_ip = self.program.items.len,
                 .identifiers = std.StringHashMap(VarInfo).init(self.allocator),
             };
-            self.stack_pointer = 0;
+            self.stack_pointer = 8; //first 0 bytes for garbage
             self.scope_stack.push(&function_scope);
             defer function_scope.identifiers.deinit();
             defer self.scope_stack.pop();
@@ -158,22 +160,21 @@ pub const IRGenerator = struct {
                 self.program_append(if (type_info.size == 1) .store else .store8, null);
             },
             .Array => {
-                self.program_append(.gstore, null); //store the address into the gp reg
+                self.program_append(.tstore, null); //store the address into the gp reg
                 const element_type = (type_info.child orelse @panic("compiler error")).type_info;
                 const length = type_info.size / element_type.size;
                 for (0..length) |i| {
-                    self.program_append(.gload, null);
-                    self.program_append(.push, element_type.size);
-                    self.program_append(.push, i);
-                    self.program_append(.mul_i, 0);
+                    const offset = @as(usize, @intCast(i)) * element_type.size;
+                    self.program_append(.tload, null);
+                    self.program_append(.push, @intCast(offset));
                     self.program_append(.add_i, 0);
                     try self.generate_stack_store(element_type.*, loc);
                 }
             },
             .Record => {
-                self.program_append(.gstore, null); //store the address into the gp reg
+                self.program_append(.tstore, null); //store the address into the gp reg
                 for (type_info.child.?.field_info.values()) |field| {
-                    self.program_append(.gload, null);
+                    self.program_append(.tload, null);
                     self.program_append(.push, field.offset);
                     self.program_append(.add_i, 0);
                     try self.generate_stack_store(field.type_info, loc);
@@ -193,25 +194,24 @@ pub const IRGenerator = struct {
                 self.program_append(if (type_info.size == 1) .load else .load8, null);
             },
             .Array => {
-                self.program_append(.gstore, null); //store the address into the gp reg
+                self.program_append(.tstore, null); //store the address into the gp reg
                 const element_type = (type_info.child orelse @panic("compiler error")).type_info;
                 const length = type_info.size / element_type.size;
                 var i: isize = @intCast(length - 1);
                 while (i >= 0) : (i -= 1) {
-                    self.program_append(.gload, null);
-                    self.program_append(.push, element_type.size);
-                    self.program_append(.push, @bitCast(i));
-                    self.program_append(.mul_i, 0);
+                    const offset = @as(usize, @intCast(i)) * element_type.size;
+                    self.program_append(.tload, null);
+                    self.program_append(.push, offset);
                     self.program_append(.add_i, 0);
                     try self.generate_stack_load(element_type.*, loc);
                 }
             },
             .Record => {
-                self.program_append(.gstore, null); //store the address into the gp reg
+                self.program_append(.tstore, null); //store the address into the gp reg
                 var infos = type_info.child.?.field_info.values();
                 std.mem.reverse(typing.FieldInfoStruct, infos);
                 for (infos) |field| {
-                    self.program_append(.gload, null);
+                    self.program_append(.tload, null);
                     self.program_append(.push, field.offset);
                     self.program_append(.add_i, 0);
                     try self.generate_stack_load(field.type_info, loc);
@@ -247,11 +247,10 @@ const StatementGenerator = struct {
             .VariableDeclaration => |stmt| {
                 if (stmt.typ == null) @panic("variable type inference not implemented");
                 const var_info = try ir.register_var_decl(stmt.name_tk, stmt.typ.?);
-                if (stmt.assignment) |assignment| {
-                    _ = try ExpressionGenerator.generate_rvalue(ir, assignment);
-                    ir.program_append(.push, var_info.stack_loc);
-                    try ir.generate_stack_store(var_info.type_info, stmt.name_tk.loc);
-                }
+                const assignment = stmt.assignment;
+                _ = try ExpressionGenerator.generate_rvalue(ir, assignment);
+                ir.program_append(.push, var_info.stack_loc);
+                try ir.generate_stack_store(var_info.type_info, stmt.name_tk.loc);
             },
             .VariableAssignment => |stmt| {
                 _ = try ExpressionGenerator.generate_rvalue(ir, stmt.rhs);
