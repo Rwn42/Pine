@@ -375,6 +375,7 @@ const ExpressionParser = struct {
             .DoubleEqual,
             .NotEqual,
             .Dot,
+            .DoubleDot,
             => true,
             else => false,
         };
@@ -563,6 +564,7 @@ const Precedence = enum {
             .Asterisk => .Product,
             .SlashForward => .Product,
             .Dot => .Highest,
+            .DoubleDot => .Equals,
             else => .Lowest,
         };
         return @intFromEnum(prec);

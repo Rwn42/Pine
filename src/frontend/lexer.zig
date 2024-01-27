@@ -75,7 +75,6 @@ pub const Lexer = struct {
             '^' => .Hat,
             '&' => .Ampersand,
             ',' => .Comma,
-            '.' => .Dot,
             '*' => .Asterisk,
             '+' => .Plus,
             '=' => self.lex_complex_operator(.DoubleEqual, .Equal),
@@ -83,6 +82,12 @@ pub const Lexer = struct {
             '<' => self.lex_complex_operator(.LessThanEqual, .LessThan),
             '!' => self.lex_complex_operator(.NotEqual, .ExclamationMark),
             '-' => .Dash,
+            '.' => blk: {
+                const c = self.peek() orelse break :blk .Dot;
+                if (c != '.') break :blk .Dot;
+                self.adv();
+                break :blk .DoubleDot;
+            },
             '1'...'9' => self.lex_number(10) catch return null,
             'A'...'Z', 'a'...'z' => blk: {
                 const start_idx = self.pos;
