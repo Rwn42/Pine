@@ -4,6 +4,8 @@ const AST = @import("../frontend/ast.zig");
 const IRError = @import("ir.zig").IRError;
 const ir = @import("ir.zig");
 
+const Location = @import("../common.zig").Location;
+
 const TokenType = @import("../frontend/token.zig").TokenType;
 const Token = @import("../frontend/token.zig").Token;
 
@@ -17,12 +19,14 @@ pub const Primitive = std.ComptimeStringMap(TypeInfo, .{
     .{ "bool", .{ .size = 1, .tag = .Bool, .child = null } },
     .{ "byte", .{ .size = 1, .tag = .Byte, .child = null } },
     .{ "void", .{ .size = 0, .tag = .Void, .child = null } },
+    .{ "untyped_int", .{ .size = 8, .tag = .UntypedInt, .child = null } },
 });
 
 pub const TypeTag = enum {
     Pointer,
     Array,
     WidePointer,
+    UntypedInt, //can be assigned to integer or byte or pointer maybe
     Record,
     Integer,
     Byte,
@@ -176,6 +180,26 @@ pub const TypeManager = struct {
         };
     }
 };
+
+//more will be added in the future for now types are very strict
+//TODO: better errors
+pub fn types_equivalent(t1: TypeInfo, t2: TypeInfo) !void {
+    errdefer {
+        std.log.err("Type mismatch.", .{});
+    }
+    if (t1.tag == .Array and t2.tag == .Array) {
+        try types_equivalent(t1.child.?.type_info.*, t2.child.?.type_info.*);
+        if (t1.size / t1.child.?.type_info.*.size != t2.size / t2.child.?.type_info.*.size) return IRError.TypeMismatch;
+    }
+    if (t1.tag == .WidePointer and t2.tag == .WidePointer) {
+        try types_equivalent(t1.child.?.type_info.*, t2.child.?.type_info.*);
+    }
+    if (t1.tag == t2.tag) return;
+    if ((t1.tag == .Byte or t1.tag == .Integer or t1.tag == .Float) and t2.tag == .UntypedInt) return;
+    if ((t2.tag == .Byte or t2.tag == .Integer or t2.tag == .Float) and t1.tag == .UntypedInt) return;
+
+    return IRError.TypeMismatch;
+}
 
 pub const TypeInfo = struct {
     const Child = union {

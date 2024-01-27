@@ -182,12 +182,6 @@ pub const Interpreter = struct {
                 if (a != 1 and a != 0) @panic("Cannot negate a non boolean");
                 i.operand_stack.push(if (a == 1) 0 else 1);
             },
-            .tstore => {
-                i.temp_r = i.operand_stack.pop_ret();
-            },
-            .tload => {
-                i.operand_stack.push(i.temp_r);
-            },
             .store => {
                 const position = i.operand_stack.pop_ret();
                 const value = i.operand_stack.pop_ret();
@@ -229,7 +223,36 @@ pub const Interpreter = struct {
                 if (i.ip == 0) return InterpreterError.Done;
                 return;
             },
-            else => {},
+            .astore => {
+                const length = i.operand_stack.pop_ret();
+                const position = i.operand_stack.pop_ret();
+                for (0..length) |j| {
+                    if (inst.operand.? == 8) {
+                        const value = @as([8]u8, @bitCast(i.operand_stack.pop_ret()));
+                        for (value, 0..) |byte, idx| {
+                            i.locals.*[position + idx + (j * inst.operand.?)] = byte;
+                        }
+                    } else {
+                        const value = i.operand_stack.pop_ret();
+                        i.locals.*[position + (j * inst.operand.?)] = @as(u8, @intCast(value));
+                    }
+                }
+            },
+            .aload => {
+                const length = i.operand_stack.pop_ret();
+                const position = i.operand_stack.pop_ret();
+                for (0..length) |j| {
+                    if (inst.operand.? == 8) {
+                        const pos = position + (j * inst.operand.?);
+                        var bytes: [8]u8 = [_]u8{0} ** 8;
+                        std.mem.copy(u8, &bytes, i.locals.*[pos .. pos + 8]);
+                        const value = std.mem.bytesAsValue(u64, &bytes).*;
+                        i.operand_stack.push(value);
+                    } else {
+                        i.operand_stack.push(i.locals.*[position + (j * inst.operand.?)]);
+                    }
+                }
+            },
         }
         i.ip += 1;
     }
