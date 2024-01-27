@@ -85,7 +85,6 @@ pub const TypeManager = struct {
                 };
             },
             .Array => |arr| blk: {
-                //TODO: comptime array length;
                 const length = switch (arr.length) {
                     .LiteralInt => |token| @as(usize, @intCast(token.tag.Integer)),
                     else => 1,

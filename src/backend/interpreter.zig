@@ -241,15 +241,17 @@ pub const Interpreter = struct {
             .aload => {
                 const length = i.operand_stack.pop_ret();
                 const position = i.operand_stack.pop_ret();
-                for (0..length) |j| {
+                var j: isize = @intCast(length - 1);
+                while (j >= 0) : (j -= 1) {
+                    var b: usize = @intCast(j);
                     if (inst.operand.? == 8) {
-                        const pos = position + (j * inst.operand.?);
+                        const pos = position + (b * inst.operand.?);
                         var bytes: [8]u8 = [_]u8{0} ** 8;
                         std.mem.copy(u8, &bytes, i.locals.*[pos .. pos + 8]);
                         const value = std.mem.bytesAsValue(u64, &bytes).*;
                         i.operand_stack.push(value);
                     } else {
-                        i.operand_stack.push(i.locals.*[position + (j * inst.operand.?)]);
+                        i.operand_stack.push(i.locals.*[position + (b * inst.operand.?)]);
                     }
                 }
             },

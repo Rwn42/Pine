@@ -33,6 +33,7 @@ pub const IRGenerator = struct {
         start_ip: usize,
         parent_func_name: []u8,
     };
+
     const Self = @This();
     const ScopeStackType = Stack(*Scope, 32, "Too many nested blocks limit is 30");
 
@@ -202,7 +203,7 @@ pub const IRGenerator = struct {
 };
 
 pub const StatementGenerator = struct {
-    fn generate(ir: *IRGenerator, input_stmt: AST.Statement) IRError!void {
+    pub fn generate(ir: *IRGenerator, input_stmt: AST.Statement) IRError!void {
         switch (input_stmt) {
             .ReturnStatement => |stmt| {
                 const given_type = try ExpressionGenerator.generate_rvalue(ir, stmt);
@@ -217,9 +218,12 @@ pub const StatementGenerator = struct {
             .VariableDeclaration => |stmt| {
                 const given_type = try ExpressionGenerator.generate_rvalue(ir, stmt.assignment);
                 var registered_type = given_type; //type that we will register the var as
+
                 if (stmt.typ) |typ| {
                     registered_type = try ir.tm.generate(typ);
                     try typing.types_equivalent(registered_type, given_type);
+                } else {
+                    if (registered_type.tag == .UntypedInt) registered_type = typing.Primitive.get("int").?;
                 }
                 const var_info = try ir.register_var_decl(stmt.name_tk, registered_type);
                 ir.program_append(.push, var_info.stack_loc);
@@ -295,7 +299,7 @@ pub const StatementGenerator = struct {
 };
 
 const ExpressionGenerator = struct {
-    fn generate_rvalue(ir: *IRGenerator, input_expr: AST.Expression) IRError!typing.TypeInfo {
+    pub fn generate_rvalue(ir: *IRGenerator, input_expr: AST.Expression) IRError!typing.TypeInfo {
         switch (input_expr) {
             .LiteralInt => |token| {
                 ir.program_append(.push, @bitCast(token.tag.Integer));
@@ -431,6 +435,10 @@ const ExpressionGenerator = struct {
                 std.mem.reverse([]const u8, typ.child.?.field_info.keys());
                 return typ;
             },
+            .Cast => |expr| {
+                _ = try ExpressionGenerator.generate_rvalue(ir, expr.expr);
+                return ir.tm.generate(expr.destination_type);
+            },
             .AccessExpression => |expr| {
                 const info = try ExpressionGenerator.generate_lvalue(ir, input_expr);
                 try ir.generate_mem_op(info, true, expr.op.loc);
@@ -439,7 +447,6 @@ const ExpressionGenerator = struct {
             else => @panic("Not implemented"),
         }
     }
-
     fn generate_lvalue(ir: *IRGenerator, input_expr: AST.Expression) !typing.TypeInfo {
         switch (input_expr) {
             .IdentifierInvokation => |token| {
@@ -449,7 +456,7 @@ const ExpressionGenerator = struct {
             },
             .AccessExpression => |expr| {
                 const initial_info = try ExpressionGenerator.generate_lvalue(ir, expr.lhs);
-                const type_info = try ExpressionGenerator.generate_access_r(ir, expr.rhs, initial_info);
+                const type_info = try ExpressionGenerator.generate_access(ir, expr.rhs, initial_info);
                 ir.program_append(.add_i, 0);
                 return type_info;
             },
@@ -460,54 +467,60 @@ const ExpressionGenerator = struct {
                 }
                 return try ExpressionGenerator.generate_rvalue(ir, expr.expr);
             },
-            else => @panic("not implemented"),
+            else => {
+                std.log.err("{s} is not an lvalue (cannot be assigned to)", .{input_expr});
+                return IRError.Syntax;
+            },
         }
     }
 
-    fn generate_access_r(ir: *IRGenerator, expr: AST.Expression, input_info: typing.TypeInfo) !typing.TypeInfo {
+    fn generate_access(ir: *IRGenerator, expr: AST.Expression, input_info: typing.TypeInfo) !typing.TypeInfo {
         switch (expr) {
             .IdentifierInvokation => |field_tk| {
-                if (input_info.tag != .Record) {
-                    if (input_info.tag != .Array) {
-                        std.log.err("Cannot access non array or record {s}", .{field_tk});
+                switch (input_info.tag) {
+                    .Array => {
+                        _ = try ExpressionGenerator.generate_rvalue(ir, expr);
+                        ir.program_append(.push, input_info.child.?.type_info.size);
+                        ir.program_append(.mul_i, 0);
+                        return input_info.child.?.type_info.*;
+                    },
+                    .Record, .WidePointer => {
+                        if (input_info.child.?.field_info.get(field_tk.tag.Identifier)) |field_info| {
+                            ir.program_append(.push, field_info.offset);
+                            return field_info.type_info;
+                        }
+                        std.log.err("No field {s} in record", .{field_tk});
                         return IRError.Syntax;
-                    }
-                    _ = try ExpressionGenerator.generate_rvalue(ir, expr);
-                    ir.program_append(.push, input_info.child.?.type_info.size);
-                    ir.program_append(.mul_i, 0);
-                    return input_info.child.?.type_info.*;
+                    },
+                    else => {
+                        std.log.err("Cannot access variable (. operator) if it is not a record or array {s}", .{field_tk});
+                        return IRError.Syntax;
+                    },
                 }
-                if (input_info.child.?.field_info.get(field_tk.tag.Identifier)) |field_info| {
-                    ir.program_append(.push, field_info.offset);
-                    return field_info.type_info;
-                }
-                std.log.err("No field {s} in record", .{field_tk});
-                return IRError.Syntax;
             },
             .AccessExpression => |a_expr| {
                 switch (input_info.tag) {
                     .Record => {
-                        const rhs_input_info = try generate_access_r(ir, a_expr.lhs, input_info);
-                        const rhs_info = try generate_access_r(ir, a_expr.rhs, rhs_input_info);
+                        const rhs_input_info = try generate_access(ir, a_expr.lhs, input_info);
+                        const rhs_info = try generate_access(ir, a_expr.rhs, rhs_input_info);
                         ir.program_append(.add_i, 0);
                         return rhs_info;
                     },
                     .Array => {
-                        _ = try generate_access_r(ir, a_expr.lhs, input_info);
-                        const rhs_info = try generate_access_r(ir, a_expr.rhs, input_info.child.?.type_info.*);
+                        _ = try generate_access(ir, a_expr.lhs, input_info);
+                        const rhs_info = try generate_access(ir, a_expr.rhs, input_info.child.?.type_info.*);
                         ir.program_append(.add_i, 0);
                         return rhs_info;
                     },
                     else => {
-                        std.log.err("Must access record or array {s}", .{a_expr.op.loc});
+                        std.log.err("Cannot access variable (. operator) if it is not a record or array {s}", .{expr});
                         return IRError.Syntax;
                     },
                 }
             },
-            //some sort of array access
+            //some sort of array access expression
             else => {
-                if (input_info.child == null) {
-                    //TODO: dont print the whole expression or maybe...
+                if (input_info.tag != .Array) {
                     std.log.err("Tried to access a non indexible value {s}", .{expr});
                     return IRError.Syntax;
                 }

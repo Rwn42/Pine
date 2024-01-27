@@ -49,7 +49,7 @@ Vector2 :: record {
     y: float,
 }
 
-my_vec: Vector2 = {x: 1, b: 2};
+my_vec := Vector2{x: 1, b: 2};
 
 
 my_array: [10]int = [1, 2, 3, 4, 5, 6];
@@ -63,7 +63,7 @@ x = my_array.(x); //parenthesis required for array index most of the time
 Types are not yet finalized however many operators are.
 ```
 y: int = 10 + (2 * 3 + 4) - 6; //parsed correctly according to bedmas
-x: bool = !(y < 2);
+x  := !(y < 2); //would be type bool
 p: ^int = &(^(&y)) //& is reference ^ is dereference and for pointer types
 
 ```
@@ -72,8 +72,8 @@ p: ^int = &(^(&y)) //& is reference ^ is dereference and for pointer types
 get to a turing complete stage capable of printing hello, world!
 - [x] lexer
 - [x] parser
-- [x] ir gen broken currently due to refactoring
-- [x] interpreter  broken currently due to refactoring
+- [x] ir gen 
+- [x] interpreter  
 - [ ] native compiler
 - [ ] type checking (may introduce another ast / ir)
 
