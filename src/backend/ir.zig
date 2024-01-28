@@ -7,12 +7,7 @@ const AST = @import("../frontend/ast.zig");
 const typing = @import("typing.zig");
 const Stack = @import("../common.zig").Stack;
 const Operation = @import("bytecode.zig").Operation;
-
-//TODO: Code re-factor and cleanup
-//TODO: compt time code execution
-//TODO: Slices or general fat pointer but maybe length is always needed
-//TODO: Strings
-//TODO: solution for general load store that can work on stack and arbitrary memory address
+const Interpreter = @import("interpreter.zig").Interpreter;
 
 pub const IRError = error{
     Undeclared,
@@ -22,104 +17,90 @@ pub const IRError = error{
     Syntax,
 };
 
+const Program = std.ArrayList(Operation);
+const IdMap = std.StringHashMap(VarInfo);
+
 const VarInfo = struct {
-    stack_loc: usize,
+    ct_known: bool,
+    stack_addr: usize,
     type_info: typing.TypeInfo,
 };
+const Block = struct {
+    identifiers: IdMap,
+    start_ip: usize,
+    parent_func_name: ?[]u8,
+};
 
-pub const IRGenerator = struct {
-    const Scope = struct {
-        identifiers: std.StringHashMap(VarInfo),
-        start_ip: usize,
-        parent_func_name: []u8,
+const ScopeStack = Stack(*Block, 30, "Too many nested blocks!");
+
+//specifically for generating IR from AST from main file
+pub fn generate_main(allocator: std.mem.Allocator, ast_roots: []AST.Declaration) ![]Operation {
+    var state = IRState.init(allocator);
+    state.active_buffer = &state.program;
+    defer state.deinit();
+
+    //instructions for calling main
+    IRState.program_append(&state, .push, 0);
+    IRState.program_append(&state, .call, null);
+
+    var program = try generate(allocator, &state, ast_roots);
+
+    //edit main call instructions with main ip
+    program[0].operand = state.function_ips.get("main") orelse {
+        std.log.info("No main function defined main :: fn() void {{...}}", .{});
+        return IRError.Undeclared;
     };
 
-    const Self = @This();
-    const ScopeStackType = Stack(*Scope, 32, "Too many nested blocks limit is 30");
+    return program;
+}
 
-    program: std.ArrayList(Operation),
-    allocator: std.mem.Allocator,
-    scope_stack: ScopeStackType,
-    tm: typing.TypeManager,
-    function_bodies: []*AST.FunctionDeclarationNode,
-    functions: std.StringHashMap(usize), //function name to start location
-    stack_pointer: usize = 8, //resets to 8 for each function call (compile time address tracking of local vars)
+pub fn generate(allocator: std.mem.Allocator, input_state: ?*IRState, ast_roots: []AST.Declaration) ![]Operation {
+    var defualt_state = IRState.init(allocator);
+    defer defualt_state.deinit();
+    var state = input_state orelse &defualt_state;
+    state.active_buffer = &state.program;
+    state.ct_interpreter.open_scratch_scope();
+    defer allocator.destroy(state.ct_interpreter.call_stack.pop_ret());
 
-    pub fn init(allocator: std.mem.Allocator, declarations: []AST.Declaration) !Self {
-        var tm = typing.TypeManager.init(allocator);
-        var bodies = std.ArrayList(*AST.FunctionDeclarationNode).init(allocator);
-        for (declarations) |decl| {
-            switch (decl) {
-                .FunctionDeclaration => |f_decl| {
-                    try tm.register_function(f_decl);
-                    try bodies.append(f_decl);
-                },
-                .RecordDeclaration => |r_decl| try tm.register_record(r_decl),
-                .ConstantDeclaration => @panic("Not implemented"),
-                .ImportDeclaration => @panic("not implemented"),
-                //eventually constants go to comptime eval and end up as map of string -> value
-            }
-        }
-        return .{
-            .program = std.ArrayList(Operation).init(allocator),
-            .function_bodies = try bodies.toOwnedSlice(),
-            .allocator = allocator,
-            .scope_stack = ScopeStackType.init(),
-            .tm = tm,
-            .functions = std.StringHashMap(usize).init(allocator),
-        };
+    var global_scope = Block{ .start_ip = 0, .identifiers = IdMap.init(allocator), .parent_func_name = null };
+    state.scope.push(&global_scope);
+    defer state.close_scope();
+
+    for (ast_roots) |root| {
+        try DeclarationGenerator.generate(state, root);
     }
 
-    pub fn generate_program(self: *Self) ![]Operation {
-        defer self.deinit();
-        errdefer self.program.deinit();
+    return state.program.toOwnedSlice();
+}
 
-        //this is to call the main function
-        self.program_append(.push, 0);
-        self.program_append(.call, null);
+const IRState = struct {
+    const Self = @This();
 
-        for (self.function_bodies) |f_decl| {
-            var scope = Scope{
-                .start_ip = self.program.items.len,
-                .identifiers = std.StringHashMap(VarInfo).init(self.allocator),
-                .parent_func_name = f_decl.name_tk.tag.Identifier,
-            };
-            self.open_scope(&scope);
-            defer self.close_scope(&scope);
+    program: Program,
+    ct_buffer: Program,
+    active_buffer: *Program,
+    ct_interpreter: Interpreter,
+    scope: ScopeStack = ScopeStack.init(),
+    function_ips: std.StringHashMap(usize),
+    allocator: std.mem.Allocator,
+    tm: typing.TypeManager,
+    stack_pointer: usize = 8, //compile time addr tracking
 
-            try self.functions.put(f_decl.name_tk.tag.Identifier, scope.start_ip);
-
-            var param_n = f_decl.params;
-            while (param_n) |param| {
-                const info = try self.register_var_decl(param.name_tk, try self.tm.generate(param.typ));
-                self.program_append(.push, info.stack_loc);
-                try self.generate_mem_op(info.type_info, false, param.name_tk.loc);
-                param_n = param.next;
-            }
-
-            for (f_decl.body) |stmt| {
-                try StatementGenerator.generate(self, stmt);
-            }
-
-            //any other type of function is expected to return properly it will not be auto inserted
-            if ((self.tm.functions.get(f_decl.name_tk.tag.Identifier).?).tag == .Void) {
-                self.program_append(.ret, null);
-            }
-        }
-
-        const idx = self.functions.get("main") orelse {
-            std.log.err("No main function (main :: fn() {{...}})", .{});
-            return IRError.Undeclared;
+    fn init(allocator: std.mem.Allocator) Self {
+        return Self{
+            .program = Program.init(allocator),
+            .active_buffer = undefined,
+            .ct_buffer = Program.init(allocator),
+            .ct_interpreter = Interpreter.init_blank(allocator),
+            .function_ips = std.StringHashMap(usize).init(allocator),
+            .tm = typing.TypeManager.init(allocator),
+            .allocator = allocator,
         };
-
-        self.program.items[0].operand = idx; //replace the push 0 instruction with push addr of main
-
-        return try self.program.toOwnedSlice();
     }
 
     fn find_identifier(self: *Self, identifier_tk: Token, idx: usize) !VarInfo {
         const identifier = identifier_tk.tag.Identifier;
-        if (self.scope_stack.get(idx).identifiers.get(identifier)) |info| return info;
+        if (self.scope.get(idx).identifiers.get(identifier)) |info| return info;
         if (idx == 0) {
             std.log.err("Undeclared identifier {s}", .{identifier_tk});
             return IRError.Undeclared;
@@ -128,16 +109,17 @@ pub const IRGenerator = struct {
     }
 
     fn register_var_decl(self: *Self, name_tk: Token, typ: typing.TypeInfo) !VarInfo {
-        if (self.scope_stack.top().identifiers.contains(name_tk.tag.Identifier)) {
+        if (self.scope.top().identifiers.contains(name_tk.tag.Identifier)) {
             std.log.err("Duplicate definition of identifier {s}", .{name_tk});
             return IRError.Duplicate;
         }
-        try self.scope_stack.top().identifiers.put(name_tk.tag.Identifier, .{
+        try self.scope.top().identifiers.put(name_tk.tag.Identifier, .{
             .type_info = typ,
-            .stack_loc = self.stack_pointer,
+            .ct_known = if (self.scope.top_idx() == 0) true else false,
+            .stack_addr = self.stack_pointer,
         });
         self.stack_pointer += typ.size;
-        return self.scope_stack.top().identifiers.get(name_tk.tag.Identifier).?;
+        return self.scope.top().identifiers.get(name_tk.tag.Identifier).?;
     }
 
     //generates load/store instructions location given for error reporting
@@ -148,14 +130,13 @@ pub const IRGenerator = struct {
                 std.log.err("Cannot have variable/field of type void {s}", .{loc});
                 return IRError.Syntax;
             },
-            .Bool, .Byte, .Integer, .Float, .Pointer => {
+            .Bool, .Byte, .Integer, .Float, .Pointer, .UntypedInt => {
                 if (load) {
                     self.program_append(if (type_info.size == 1) .load else .load8, null);
                 } else {
                     self.program_append(if (type_info.size == 1) .store else .store8, null);
                 }
             },
-            .UntypedInt => unreachable,
             .Record, .WidePointer => {
                 self.program_append(.push, 0); //store the record start in temp memory
                 self.program_append(.store8, null); //useful to refer to it for subsequent field load
@@ -179,35 +160,105 @@ pub const IRGenerator = struct {
         }
     }
 
-    fn open_scope(self: *Self, scope: *Scope) void {
-        self.stack_pointer = 8;
-        self.scope_stack.push(scope);
+    fn enter_ct_mode(self: *Self) void {
+        self.active_buffer = &self.ct_buffer;
     }
 
-    fn close_scope(self: *Self, scope: *Scope) void {
-        self.scope_stack.pop();
-        scope.identifiers.deinit();
+    //returns whats left on the operand stack after execution
+    //useful for comptime expression execution such as for array length
+    fn execute_ct_buffer(self: *Self) ![]u64 {
+        const program = try self.ct_buffer.toOwnedSlice();
+        defer self.allocator.free(program);
+        self.ct_interpreter.load_new_program(program);
+        self.ct_interpreter.run() catch {};
+        return self.ct_interpreter.operand_stack.buffer[0..self.ct_interpreter.operand_stack.sp];
     }
 
-    fn program_append(self: *Self, opc: Operation.Opcode, ope: ?u64) void {
-        self.program.append(.{ .opc = opc, .operand = ope }) catch {
+    fn exit_ct_mode(self: *Self) void {
+        self.active_buffer = &self.program;
+    }
+
+    fn program_append(self: *Self, opc: Operation.Opcode, operand: ?u64) void {
+        self.active_buffer.*.append(.{ .opc = opc, .operand = operand }) catch {
             @panic("FATAL COMPILER ERROR: Out of memory");
         };
     }
 
+    fn program_len(self: *Self) usize {
+        return self.active_buffer.items.len;
+    }
+
+    fn close_scope(self: *Self) void {
+        const block = self.scope.pop_ret();
+        block.identifiers.deinit();
+    }
+
     fn deinit(self: *Self) void {
-        self.allocator.free(self.function_bodies);
+        self.program.deinit();
+        self.ct_buffer.deinit();
         self.tm.deinit();
-        self.functions.deinit();
+        self.function_ips.deinit();
+    }
+};
+
+const DeclarationGenerator = struct {
+    fn generate(state: *IRState, decl: AST.Declaration) !void {
+        switch (decl) {
+            .RecordDeclaration => |r_decl| try state.tm.register_record(r_decl),
+            .FunctionDeclaration => |f_decl| {
+                state.stack_pointer = 8; //new function so reset sp to 8
+
+                const name = f_decl.name_tk.tag.Identifier;
+                try state.tm.register_function(f_decl);
+                try state.function_ips.put(name, state.program_len());
+
+                var function_scope = Block{
+                    .parent_func_name = name,
+                    .start_ip = state.program_len(),
+                    .identifiers = IdMap.init(state.allocator),
+                };
+                state.scope.push(&function_scope);
+                defer state.close_scope();
+
+                var param_n = f_decl.params;
+                while (param_n) |param| {
+                    const info = try state.register_var_decl(param.name_tk, try state.tm.generate(param.typ));
+                    state.program_append(.push, info.stack_addr);
+                    try state.generate_mem_op(info.type_info, false, param.name_tk.loc);
+                    param_n = param.next;
+                }
+
+                for (f_decl.body) |stmt| {
+                    try StatementGenerator.generate(state, stmt);
+                }
+
+                //auto inserts return for void functions
+                //any other type of function is expected to return properly it will not be auto inserted
+                if ((state.tm.functions.get(f_decl.name_tk.tag.Identifier).?).tag == .Void) {
+                    state.program_append(.ret, null);
+                }
+            },
+            .ConstantDeclaration => |c_decl| {
+                state.enter_ct_mode();
+                defer state.exit_ct_mode();
+
+                const type_info = try ExpressionGenerator.generate_rvalue(state, c_decl.value);
+                const var_info = try state.register_var_decl(c_decl.name_tk, type_info);
+                state.program_append(.push, var_info.stack_addr);
+                try state.generate_mem_op(type_info, false, c_decl.name_tk.loc);
+                _ = try state.execute_ct_buffer();
+            },
+            .ImportDeclaration => @panic("not implemented"),
+        }
     }
 };
 
 pub const StatementGenerator = struct {
-    pub fn generate(ir: *IRGenerator, input_stmt: AST.Statement) IRError!void {
+    pub fn generate(ir: *IRState, input_stmt: AST.Statement) IRError!void {
         switch (input_stmt) {
             .ReturnStatement => |stmt| {
                 const given_type = try ExpressionGenerator.generate_rvalue(ir, stmt);
-                const expected_type = ir.tm.functions.get(ir.scope_stack.top().parent_func_name).?;
+                const expected_type = ir.tm.functions.get(ir.scope.top().parent_func_name.?).?;
                 try typing.types_equivalent(expected_type, given_type);
                 ir.program_append(.ret, null);
             },
@@ -226,7 +277,7 @@ pub const StatementGenerator = struct {
                     if (registered_type.tag == .UntypedInt) registered_type = typing.Primitive.get("int").?;
                 }
                 const var_info = try ir.register_var_decl(stmt.name_tk, registered_type);
-                ir.program_append(.push, var_info.stack_loc);
+                ir.program_append(.push, var_info.stack_addr);
                 try ir.generate_mem_op(var_info.type_info, false, stmt.name_tk.loc);
             },
 
@@ -244,6 +295,8 @@ pub const StatementGenerator = struct {
                 const t_info = try ExpressionGenerator.generate_rvalue(ir, expr);
                 if (t_info.tag == .Byte) {
                     ir.program_append(.temp_print, 1);
+                } else if (t_info.tag == .Float) {
+                    ir.program_append(.temp_print, 2);
                 } else {
                     ir.program_append(.temp_print, 0);
                 }
@@ -251,8 +304,8 @@ pub const StatementGenerator = struct {
         }
     }
 
-    fn generate_conditional(ir: *IRGenerator, block: AST.Statement) !void {
-        const jump_back_ip = ir.program.items.len;
+    fn generate_conditional(ir: *IRState, block: AST.Statement) !void {
+        const jump_back_ip = ir.program_len();
 
         const condition_info = switch (block) {
             .WhileStatement => |stmt| try ExpressionGenerator.generate_rvalue(ir, stmt.condition),
@@ -269,14 +322,13 @@ pub const StatementGenerator = struct {
             return IRError.Syntax;
         }
 
-        var block_scope = IRGenerator.Scope{
-            .start_ip = ir.program.items.len,
+        var block_scope = Block{
+            .start_ip = ir.program_len(),
             .identifiers = std.StringHashMap(VarInfo).init(ir.allocator),
-            .parent_func_name = ir.scope_stack.buffer[0].parent_func_name,
+            .parent_func_name = ir.scope.buffer[0].parent_func_name,
         };
-        ir.scope_stack.push(&block_scope);
-        defer block_scope.identifiers.deinit();
-        defer ir.scope_stack.pop();
+        ir.scope.push(&block_scope);
+        defer ir.close_scope();
 
         ir.program_append(.not, null);
         ir.program_append(.je, 1);
@@ -294,12 +346,12 @@ pub const StatementGenerator = struct {
             else => {},
         }
 
-        ir.program.items[block_scope.start_ip + 1].operand = ir.program.items.len; //plus 1 skips the not inst
+        ir.program.items[block_scope.start_ip + 1].operand = ir.program_len(); //plus 1 skips the not inst
     }
 };
 
 const ExpressionGenerator = struct {
-    pub fn generate_rvalue(ir: *IRGenerator, input_expr: AST.Expression) IRError!typing.TypeInfo {
+    pub fn generate_rvalue(ir: *IRState, input_expr: AST.Expression) IRError!typing.TypeInfo {
         switch (input_expr) {
             .LiteralInt => |token| {
                 ir.program_append(.push, @bitCast(token.tag.Integer));
@@ -319,12 +371,12 @@ const ExpressionGenerator = struct {
                     _ = try ExpressionGenerator.generate_rvalue(ir, list_node.expr);
                     list = list_node.next;
                 }
-                const idx = ir.functions.get(expr.name_tk.tag.Identifier) orelse {
+                const idx = ir.function_ips.get(expr.name_tk.tag.Identifier) orelse {
                     std.log.err("Cannot find function {s}", .{expr.name_tk});
                     return IRError.Undeclared;
                 };
                 ir.program_append(.push, idx);
-                ir.program_append(.call, ir.program.items.len + 1);
+                ir.program_append(.call, ir.program_len() + 1);
 
                 return ir.tm.functions.get(expr.name_tk.tag.Identifier).?;
             },
@@ -389,8 +441,19 @@ const ExpressionGenerator = struct {
                 }
             },
             .IdentifierInvokation => |token| {
-                const info = try ir.find_identifier(token, ir.scope_stack.top_idx());
-                ir.program_append(.push, info.stack_loc);
+                const info = try ir.find_identifier(token, ir.scope.top_idx());
+                //hacky for sure maybe add a struct member for in ct_state
+                if (info.ct_known and ir.active_buffer == &ir.program) {
+                    ir.enter_ct_mode();
+                    const type_info = try ExpressionGenerator.generate_rvalue(ir, input_expr);
+                    const result = try ir.execute_ct_buffer();
+                    ir.exit_ct_mode();
+                    for (result) |op| {
+                        ir.program_append(.push, op);
+                    }
+                    return type_info;
+                }
+                ir.program_append(.push, info.stack_addr);
                 try ir.generate_mem_op(info.type_info, true, token.loc);
                 return info.type_info;
             },
@@ -447,11 +510,11 @@ const ExpressionGenerator = struct {
             else => @panic("Not implemented"),
         }
     }
-    fn generate_lvalue(ir: *IRGenerator, input_expr: AST.Expression) !typing.TypeInfo {
+    fn generate_lvalue(ir: *IRState, input_expr: AST.Expression) !typing.TypeInfo {
         switch (input_expr) {
             .IdentifierInvokation => |token| {
-                const var_info = try ir.find_identifier(token, ir.scope_stack.top_idx());
-                ir.program_append(.push, var_info.stack_loc);
+                const var_info = try ir.find_identifier(token, ir.scope.top_idx());
+                ir.program_append(.push, var_info.stack_addr);
                 return var_info.type_info;
             },
             .AccessExpression => |expr| {
@@ -474,7 +537,7 @@ const ExpressionGenerator = struct {
         }
     }
 
-    fn generate_access(ir: *IRGenerator, expr: AST.Expression, input_info: typing.TypeInfo) !typing.TypeInfo {
+    fn generate_access(ir: *IRState, expr: AST.Expression, input_info: typing.TypeInfo) !typing.TypeInfo {
         switch (expr) {
             .IdentifierInvokation => |field_tk| {
                 switch (input_info.tag) {

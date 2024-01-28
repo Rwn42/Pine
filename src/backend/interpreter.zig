@@ -17,7 +17,7 @@ pub const InterpreterError = error{
 };
 
 pub const StackFrame = struct {
-    locals: [1024]u8,
+    locals: [1024 * 1024]u8,
     return_addr: usize,
 };
 
@@ -25,10 +25,9 @@ pub const Interpreter = struct {
     program: []Operation,
     operand_stack: OperandStack,
     call_stack: CallStack,
-    locals: *[1024]u8,
+    locals: *[1024 * 1024]u8,
     ip: usize = 0,
     allocator: std.mem.Allocator,
-    temp_r: u64 = 0,
 
     pub fn init_from_program(program: []Operation, allocator: std.mem.Allocator) Interpreter {
         return .{
@@ -40,19 +39,46 @@ pub const Interpreter = struct {
         };
     }
 
+    pub fn init_blank(allocator: std.mem.Allocator) Interpreter {
+        return .{
+            .program = undefined,
+            .locals = undefined,
+            .operand_stack = OperandStack.init(),
+            .call_stack = CallStack.init(),
+            .allocator = allocator,
+        };
+    }
+
+    //keeps current state but loads new program
+    pub fn load_new_program(i: *Interpreter, program: []Operation) void {
+        i.program = program;
+        i.ip = 0;
+    }
+
+    pub fn open_scratch_scope(i: *Interpreter) void {
+        const stackFrame = i.allocator.create(StackFrame) catch {
+            @panic("Out of memory!");
+        };
+        stackFrame.* = StackFrame{ .locals = [_]u8{0} ** (1024 * 1024), .return_addr = 0 };
+        i.locals = &(stackFrame.locals);
+        i.call_stack.push(stackFrame);
+        i.ip = 0;
+        return;
+    }
+
     pub fn run(i: *Interpreter) !void {
         while (true) {
             run_inst(i) catch |e| {
                 switch (e) {
                     InterpreterError.Done => {},
-                    else => std.log.err("{any}", .{e}),
+                    else => return e,
                 }
                 return;
             };
         }
     }
 
-    fn print(i: *Interpreter) void {
+    pub fn print(i: *Interpreter) void {
         if (i.call_stack.sp > 0) {
             std.debug.print("\n \n \nLocals (0-31): ", .{});
             for (i.locals.*[0..128]) |elem| {
@@ -64,6 +90,8 @@ pub const Interpreter = struct {
         for (i.operand_stack.buffer[0..i.operand_stack.sp]) |elem| {
             std.debug.print("{d} ", .{elem});
         }
+
+        std.debug.print("\n", .{});
     }
 
     pub fn run_inst(i: *Interpreter) !void {
@@ -142,8 +170,8 @@ pub const Interpreter = struct {
                 }
             },
             .lt_f => {
-                const b: i64 = @bitCast(i.operand_stack.pop_ret());
-                const a: i64 = @bitCast(i.operand_stack.pop_ret());
+                const b: f64 = @bitCast(i.operand_stack.pop_ret());
+                const a: f64 = @bitCast(i.operand_stack.pop_ret());
                 if (inst.operand.? == 0) {
                     i.operand_stack.push(if (a < b) 1 else 0);
                 } else {
@@ -174,6 +202,8 @@ pub const Interpreter = struct {
                 switch (inst.operand.?) {
                     0 => std.debug.print("{d} \n", .{i.operand_stack.pop_ret()}),
                     1 => std.debug.print("{c}", .{@as(u8, @intCast(i.operand_stack.pop_ret()))}),
+                    2 => std.debug.print("{d}\n", .{@as(f64, @bitCast((i.operand_stack.pop_ret())))}),
+
                     else => {},
                 }
             },
@@ -209,7 +239,7 @@ pub const Interpreter = struct {
                 const stackFrame = i.allocator.create(StackFrame) catch {
                     @panic("Out of memory!");
                 };
-                stackFrame.* = StackFrame{ .locals = [_]u8{0} ** 1024, .return_addr = inst.operand orelse 0 };
+                stackFrame.* = StackFrame{ .locals = [_]u8{0} ** (1024 * 1024), .return_addr = inst.operand orelse 0 };
                 i.locals = &(stackFrame.locals);
                 const position = i.operand_stack.pop_ret();
                 i.call_stack.push(stackFrame);

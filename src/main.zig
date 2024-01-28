@@ -85,8 +85,7 @@ pub fn main() !void {
 
     std.log.info("Generating IR...", .{});
 
-    var irgen = try ir.IRGenerator.init(allocator, p.top_level);
-    const program = try irgen.generate_program();
+    const program = try ir.generate_main(allocator, p.top_level);
     defer allocator.free(program);
 
     if (cli_options.output_ir) {
