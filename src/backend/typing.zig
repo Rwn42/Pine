@@ -48,6 +48,7 @@ pub const TypeManager = struct {
     records: IdTypeMap,
     functions: IdTypeMap,
     arena: std.heap.ArenaAllocator, //stores typeinfo allocations for record fields
+    state: *ir.IRState = undefined, //needs to know for comptime values
 
     pub fn init(allocator: std.mem.Allocator) Self {
         return .{
@@ -85,10 +86,14 @@ pub const TypeManager = struct {
                 };
             },
             .Array => |arr| blk: {
-                const length = switch (arr.length) {
-                    .LiteralInt => |token| @as(usize, @intCast(token.tag.Integer)),
-                    else => 1,
-                };
+                self.state.enter_ct_mode();
+                defer self.state.exit_ct_mode();
+
+                const t_info = try ir.ExpressionGenerator.generate_rvalue(self.state, arr.length);
+                try types_equivalent(t_info, Primitive.get("int").?);
+                const result = try self.state.execute_ct_buffer();
+                const length = result[0];
+
                 var child = self.new_info();
                 child.* = try self.generate(arr.element_typ);
                 break :blk .{
@@ -101,7 +106,7 @@ pub const TypeManager = struct {
         };
     }
 
-    fn generate_wide_pointer(self: *Self, child_type_info: TypeInfo) !TypeInfo {
+    pub fn generate_wide_pointer(self: *Self, child_type_info: TypeInfo) !TypeInfo {
         const map = self.arena.allocator().create(FieldInfo) catch {
             @panic("FATAL COMPILER ERROR: Out of memory");
         };
@@ -191,7 +196,8 @@ pub fn types_equivalent(t1: TypeInfo, t2: TypeInfo) !void {
         if (t1.size / t1.child.?.type_info.*.size != t2.size / t2.child.?.type_info.*.size) return IRError.TypeMismatch;
     }
     if (t1.tag == .WidePointer and t2.tag == .WidePointer) {
-        try types_equivalent(t1.child.?.type_info.*, t2.child.?.type_info.*);
+        //eventually make sure that data_ptr field is pointing to the same type
+        return;
     }
     if (t1.tag == t2.tag) return;
     if ((t1.tag == .Byte or t1.tag == .Integer or t1.tag == .Float) and t2.tag == .UntypedInt) return;

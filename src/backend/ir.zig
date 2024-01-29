@@ -47,7 +47,7 @@ pub fn generate_main(allocator: std.mem.Allocator, ast_roots: []AST.Declaration)
 
     //edit main call instructions with main ip
     program[0].operand = state.function_ips.get("main") orelse {
-        std.log.info("No main function defined main :: fn() void {{...}}", .{});
+        std.log.err("No main function defined main :: fn() void {{...}}", .{});
         return IRError.Undeclared;
     };
 
@@ -60,6 +60,7 @@ pub fn generate(allocator: std.mem.Allocator, input_state: ?*IRState, ast_roots:
     var state = input_state orelse &defualt_state;
     state.active_buffer = &state.program;
     state.ct_interpreter.open_scratch_scope();
+    state.tm.state = state;
     defer allocator.destroy(state.ct_interpreter.call_stack.pop_ret());
 
     var global_scope = Block{ .start_ip = 0, .identifiers = IdMap.init(allocator), .parent_func_name = null };
@@ -73,7 +74,7 @@ pub fn generate(allocator: std.mem.Allocator, input_state: ?*IRState, ast_roots:
     return state.program.toOwnedSlice();
 }
 
-const IRState = struct {
+pub const IRState = struct {
     const Self = @This();
 
     program: Program,
@@ -160,13 +161,13 @@ const IRState = struct {
         }
     }
 
-    fn enter_ct_mode(self: *Self) void {
+    pub fn enter_ct_mode(self: *Self) void {
         self.active_buffer = &self.ct_buffer;
     }
 
     //returns whats left on the operand stack after execution
     //useful for comptime expression execution such as for array length
-    fn execute_ct_buffer(self: *Self) ![]u64 {
+    pub fn execute_ct_buffer(self: *Self) ![]u64 {
         const program = try self.ct_buffer.toOwnedSlice();
         defer self.allocator.free(program);
         self.ct_interpreter.load_new_program(program);
@@ -174,7 +175,7 @@ const IRState = struct {
         return self.ct_interpreter.operand_stack.buffer[0..self.ct_interpreter.operand_stack.sp];
     }
 
-    fn exit_ct_mode(self: *Self) void {
+    pub fn exit_ct_mode(self: *Self) void {
         self.active_buffer = &self.program;
     }
 
@@ -315,8 +316,8 @@ pub const StatementGenerator = struct {
 
         if (condition_info.tag != .Bool) {
             switch (block) {
-                .IfStatement => |stmt| std.log.info("Cannot branch on non-boolean type {s}", .{stmt.start_loc}),
-                .WhileStatement => |stmt| std.log.info("Cannot branch on non-boolean type {s}", .{stmt.start_loc}),
+                .IfStatement => |stmt| std.log.err("Cannot branch on non-boolean type {s}", .{stmt.start_loc}),
+                .WhileStatement => |stmt| std.log.err("Cannot branch on non-boolean type {s}", .{stmt.start_loc}),
                 else => unreachable,
             }
             return IRError.Syntax;
@@ -350,7 +351,7 @@ pub const StatementGenerator = struct {
     }
 };
 
-const ExpressionGenerator = struct {
+pub const ExpressionGenerator = struct {
     pub fn generate_rvalue(ir: *IRState, input_expr: AST.Expression) IRError!typing.TypeInfo {
         switch (input_expr) {
             .LiteralInt => |token| {
@@ -503,6 +504,31 @@ const ExpressionGenerator = struct {
                 return ir.tm.generate(expr.destination_type);
             },
             .AccessExpression => |expr| {
+                switch (expr.rhs) {
+                    .RangeExpression => |r_expr| {
+                        const input_info = try ExpressionGenerator.generate_lvalue(ir, expr.lhs);
+                        if (input_info.tag != .Array and input_info.tag != .WidePointer) {
+                            std.log.err("Cannot slice a type that is not an array or slice {s}", .{r_expr.op.loc});
+                            return IRError.Syntax;
+                        }
+                        //correct order is length then ptr so comptime swap these boys
+                        const lvalue_inst = ir.active_buffer.pop();
+                        //a..b => b - a on the stack which is the length
+                        _ = try ExpressionGenerator.generate_rvalue(ir, r_expr.rhs);
+                        _ = try ExpressionGenerator.generate_rvalue(ir, r_expr.lhs);
+                        ir.program_append(.add_i, 1);
+                        //add the lower bound to the start of the array ptr
+                        try ir.active_buffer.append(lvalue_inst);
+                        _ = try ExpressionGenerator.generate_rvalue(ir, r_expr.lhs);
+                        ir.program_append(.add_i, 0);
+                        if (input_info.tag == .Array) {
+                            return ir.tm.generate_wide_pointer(input_info.child.?.type_info.*);
+                        } else {
+                            @panic("not implemented");
+                        }
+                    },
+                    else => {},
+                }
                 const info = try ExpressionGenerator.generate_lvalue(ir, input_expr);
                 try ir.generate_mem_op(info, true, expr.op.loc);
                 return info;
@@ -563,7 +589,7 @@ const ExpressionGenerator = struct {
             },
             .AccessExpression => |a_expr| {
                 switch (input_info.tag) {
-                    .Record => {
+                    .Record, .WidePointer => {
                         const rhs_input_info = try generate_access(ir, a_expr.lhs, input_info);
                         const rhs_info = try generate_access(ir, a_expr.rhs, rhs_input_info);
                         ir.program_append(.add_i, 0);
@@ -583,14 +609,25 @@ const ExpressionGenerator = struct {
             },
             //some sort of array access expression
             else => {
-                if (input_info.tag != .Array) {
+                if (input_info.tag != .Array and input_info.tag != .WidePointer) {
                     std.log.err("Tried to access a non indexible value {s}", .{expr});
                     return IRError.Syntax;
                 }
-                _ = try ExpressionGenerator.generate_rvalue(ir, expr);
-                ir.program_append(.push, input_info.child.?.type_info.size);
-                ir.program_append(.mul_i, 0);
-                return input_info.child.?.type_info.*;
+                if (input_info.tag == .WidePointer) {
+                    const data = input_info.child.?.field_info.get("data_ptr").?;
+                    ir.program_append(.push, data.offset);
+                    ir.program_append(.add_i, 0);
+                    ir.program_append(.load8, null);
+                    _ = try ExpressionGenerator.generate_rvalue(ir, expr);
+                    ir.program_append(.push, data.type_info.size);
+                    ir.program_append(.mul_i, 0);
+                    return data.type_info;
+                } else {
+                    _ = try ExpressionGenerator.generate_rvalue(ir, expr);
+                    ir.program_append(.push, input_info.child.?.type_info.size);
+                    ir.program_append(.mul_i, 0);
+                    return input_info.child.?.type_info.*;
+                }
             },
         }
     }

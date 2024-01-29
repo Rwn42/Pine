@@ -375,7 +375,7 @@ const ExpressionParser = struct {
             .DoubleEqual,
             .NotEqual,
             .Dot,
-            .DoubleDot,
+            .Bar,
             => true,
             else => false,
         };
@@ -463,6 +463,8 @@ const ExpressionParser = struct {
 
         if (TokenType.eq(expr.op.tag, .Dot)) {
             return .{ .AccessExpression = expr };
+        } else if (TokenType.eq(expr.op.tag, .Bar)) {
+            return .{ .RangeExpression = expr };
         }
 
         return .{ .BinaryExpression = expr };
@@ -564,7 +566,7 @@ const Precedence = enum {
             .Asterisk => .Product,
             .SlashForward => .Product,
             .Dot => .Highest,
-            .DoubleDot => .Equals,
+            .Bar => .Equals,
             else => .Lowest,
         };
         return @intFromEnum(prec);

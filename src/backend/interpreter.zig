@@ -99,7 +99,7 @@ pub const Interpreter = struct {
             return InterpreterError.UnexpectedEnd;
         }
         const inst = i.program[i.ip];
-
+        //i.print();
         switch (inst.opc) {
             .push => {
                 i.operand_stack.push(inst.operand.?);

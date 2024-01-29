@@ -82,12 +82,8 @@ pub const Lexer = struct {
             '<' => self.lex_complex_operator(.LessThanEqual, .LessThan),
             '!' => self.lex_complex_operator(.NotEqual, .ExclamationMark),
             '-' => .Dash,
-            '.' => blk: {
-                const c = self.peek() orelse break :blk .Dot;
-                if (c != '.') break :blk .Dot;
-                self.adv();
-                break :blk .DoubleDot;
-            },
+            '|' => .Bar,
+            '.' => .Dot,
             '1'...'9' => self.lex_number(10) catch return null,
             'A'...'Z', 'a'...'z' => blk: {
                 const start_idx = self.pos;
@@ -191,7 +187,6 @@ pub const Lexer = struct {
             return err;
         };
 
-        self.adv();
         const decimal_start = self.pos;
         self.adv_while(std.ascii.isDigit);
 

@@ -181,6 +181,7 @@ pub const WhileStatementNode = struct {
 pub const Expression = union(enum) {
     BinaryExpression: *BinaryExpressionNode,
     AccessExpression: *BinaryExpressionNode,
+    RangeExpression: *BinaryExpressionNode,
     UnaryExpression: *UnaryExpressionNode,
     FunctionInvokation: *FunctionInvokationNode,
     ArrayInitialization: *ExprList,
@@ -195,7 +196,7 @@ pub const Expression = union(enum) {
     pub fn format(self: Expression, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         switch (self) {
             .LiteralBool, .LiteralFloat, .LiteralString, .LiteralInt, .IdentifierInvokation => |tk| try writer.print("{s}", .{tk.tag}),
-            .BinaryExpression, .AccessExpression => |expr| {
+            .BinaryExpression, .AccessExpression, .RangeExpression => |expr| {
                 try writer.print("( ", .{});
                 try expr.lhs.format(fmt, options, writer);
                 try writer.print(" )", .{});

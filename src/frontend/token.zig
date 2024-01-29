@@ -46,8 +46,9 @@ pub const TokenType = union(enum) {
 
     //punctuation
     Dot,
-    DoubleDot,
+    FatArrow,
     Comma,
+    Bar,
     Semicolon,
     Colon,
     Lparen,
@@ -103,7 +104,8 @@ pub const TokenType = union(enum) {
         .{ @tagName(TokenType.ExclamationMark), "!" },
         .{ @tagName(TokenType.Ampersand), "&" },
         .{ @tagName(TokenType.Dot), "." },
-        .{ @tagName(TokenType.DoubleDot), ".." },
+        .{ @tagName(TokenType.FatArrow), "=>" },
+        .{ @tagName(TokenType.Bar), "|" },
         .{ @tagName(TokenType.Comma), "," },
         .{ @tagName(TokenType.Semicolon), ";" },
         .{ @tagName(TokenType.Colon), ":" },
