@@ -135,8 +135,7 @@ pub const TypeManager = struct {
 
         var cur_offset: usize = 0;
 
-        var ast_field_o = decl.fields;
-        while (ast_field_o) |ast_field| {
+        for (decl.fields) |ast_field| {
             switch (ast_field.typ) {
                 .Basic => |tk| {
                     if (std.mem.eql(u8, tk.tag.Identifier, decl.name_tk.tag.Identifier)) {
@@ -159,7 +158,6 @@ pub const TypeManager = struct {
             };
 
             cur_offset += field_ti.size;
-            ast_field_o = ast_field.next;
         }
 
         self.records.put(decl.name_tk.tag.Identifier, record) catch {

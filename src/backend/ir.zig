@@ -221,12 +221,10 @@ const DeclarationGenerator = struct {
                 state.scope.push(&function_scope);
                 defer state.close_scope();
 
-                var param_n = f_decl.params;
-                while (param_n) |param| {
+                for (f_decl.params) |param| {
                     const info = try state.register_var_decl(param.name_tk, try state.tm.generate(param.typ));
                     state.program_append(.push, info.stack_addr);
                     try state.generate_mem_op(info.type_info, false, param.name_tk.loc);
-                    param_n = param.next;
                 }
 
                 for (f_decl.body) |stmt| {
@@ -367,11 +365,11 @@ pub const ExpressionGenerator = struct {
                 return typing.Primitive.get("bool").?;
             },
             .FunctionInvokation => |expr| {
-                var list = reverse_expr_list(expr.args_list);
-                while (list) |list_node| {
-                    _ = try ExpressionGenerator.generate_rvalue(ir, list_node.expr);
-                    list = list_node.next;
+                std.mem.reverse(AST.Expression, expr.args_list);
+                for (expr.args_list) |exp| {
+                    _ = try ExpressionGenerator.generate_rvalue(ir, exp);
                 }
+
                 const idx = ir.function_ips.get(expr.name_tk.tag.Identifier) orelse {
                     std.log.err("Cannot find function {s}", .{expr.name_tk});
                     return IRError.Undeclared;
@@ -460,14 +458,12 @@ pub const ExpressionGenerator = struct {
             },
 
             .ArrayInitialization => |ordered_list| {
-                const list = reverse_expr_list(ordered_list);
+                std.mem.reverse(AST.Expression, ordered_list);
                 var length: usize = 0;
-                var list_o: ?*AST.ExprList = list;
                 var element_type = ir.tm.new_info();
-                while (list_o) |list_node| {
+                for (ordered_list) |exp| {
                     length += 1;
-                    element_type.* = try generate_rvalue(ir, list_node.expr);
-                    list_o = list_node.next;
+                    element_type.* = try generate_rvalue(ir, exp);
                 }
                 return .{
                     .tag = .Array,
@@ -484,14 +480,12 @@ pub const ExpressionGenerator = struct {
                 //this is awfully slow
                 std.mem.reverse([]const u8, typ.child.?.field_info.keys());
                 outer: for (typ.child.?.field_info.keys()) |field_name| {
-                    var node_o: ?*AST.FieldList = list.fields;
-                    while (node_o) |ast_field| {
+                    for (list.fields) |ast_field| {
                         if (std.mem.eql(u8, ast_field.field.tag.Identifier, field_name)) {
                             //could do some type checking here
                             _ = try ExpressionGenerator.generate_rvalue(ir, ast_field.expr);
                             continue :outer;
                         }
-                        node_o = ast_field.next;
                     }
                     std.log.err("Did not initialize field {s} {s}", .{ field_name, list.name_tk.loc });
                     return IRError.Syntax;
@@ -573,13 +567,26 @@ pub const ExpressionGenerator = struct {
                         ir.program_append(.mul_i, 0);
                         return input_info.child.?.type_info.*;
                     },
-                    .Record, .WidePointer => {
+                    .Record => {
                         if (input_info.child.?.field_info.get(field_tk.tag.Identifier)) |field_info| {
                             ir.program_append(.push, field_info.offset);
                             return field_info.type_info;
                         }
                         std.log.err("No field {s} in record", .{field_tk});
                         return IRError.Syntax;
+                    },
+                    .WidePointer => {
+                        if (input_info.child.?.field_info.get(field_tk.tag.Identifier)) |field_info| {
+                            ir.program_append(.push, field_info.offset);
+                            return field_info.type_info;
+                        }
+                        ir.program_append(.push, input_info.child.?.field_info.get("data_ptr").?.offset);
+                        ir.program_append(.add_i, 0);
+                        ir.program_append(.load8, null); //load data ptr
+                        _ = try ExpressionGenerator.generate_rvalue(ir, expr);
+                        ir.program_append(.push, input_info.child.?.field_info.get("data_ptr").?.type_info.size);
+                        ir.program_append(.mul_i, 0);
+                        return input_info.child.?.field_info.get("data_ptr").?.type_info;
                     },
                     else => {
                         std.log.err("Cannot access variable (. operator) if it is not a record or array {s}", .{field_tk});
@@ -633,17 +640,5 @@ pub const ExpressionGenerator = struct {
     }
 };
 
-//reverse the linked list AST should probably just change but works for now.
-fn reverse_expr_list(list: ?*AST.ExprList) ?*AST.ExprList {
-    var current: ?*AST.ExprList = list;
-    var prev: ?*AST.ExprList = null;
-    var next: ?*AST.ExprList = null;
-
-    while (current) |curr_node| {
-        next = curr_node.next;
-        curr_node.next = prev;
-        prev = current;
-        current = next;
-    }
-    return prev;
-}
+//push idx push stack_addr load
+//eventually could optimize the laod into a load with stack_addr

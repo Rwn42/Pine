@@ -81,8 +81,8 @@ pub const Interpreter = struct {
     pub fn print(i: *Interpreter) void {
         if (i.call_stack.sp > 0) {
             std.debug.print("\n \n \nLocals (0-31): ", .{});
-            for (i.locals.*[0..128]) |elem| {
-                std.debug.print("{d} ", .{elem});
+            for (i.locals.*[0..128], 0..) |elem, j| {
+                std.debug.print("{d}: {d}    ", .{ j, elem });
             }
         }
 

@@ -10,7 +10,8 @@ print_string :: fn(s: String) void {
         i = i + 1;
     }
 }
-x.(a-b)
+x.(a | b);
+
 
 main :: fn() void {
     buf: [16]byte = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
