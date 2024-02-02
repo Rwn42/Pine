@@ -139,10 +139,9 @@ pub const DeclarationParser = struct {
 
         var ll_head: ?*AST.ParamList = null;
         try parse_param_list(p, &ll_head);
-        var node_optional = ll_head;
-        while (node_optional) |node| {
+        while (ll_head) |node| {
             fields.append(.{ .name_tk = node.name_tk, .typ = node.typ }) catch @panic("FATAL COMPILER ERROR: Out of memory");
-            node_optional = node.next;
+            ll_head = node.next;
         }
         decl.fields = fields.toOwnedSlice() catch @panic("FATAL COMPILER ERROR: Out of memory");
         if (decl.fields.len <= 0) {
@@ -176,10 +175,9 @@ pub const DeclarationParser = struct {
         if (!TokenType.eq(p.token.tag, .Rparen)) {
             var ll_head: ?*AST.ParamList = null;
             try parse_param_list(p, &ll_head);
-            var node_optional = ll_head;
-            while (node_optional) |node| {
+            while (ll_head) |node| {
                 params.append(.{ .name_tk = node.name_tk, .typ = node.typ }) catch @panic("FATAL COMPILER ERROR: Out of memory");
-                node_optional = node.next;
+                ll_head = node.next;
             }
         }
 
@@ -409,10 +407,9 @@ const ExpressionParser = struct {
                 var array = std.ArrayList(AST.Expression).init(p.node_arena.allocator());
                 try parse_arg(p, &v, .Rbracket);
                 _ = try p.expect(.Rbracket);
-                var node_optional = v;
-                while (node_optional) |node| {
+                while (v) |node| {
                     array.append(node.expr) catch @panic("FATAL COMPILER ERROR: Out of memory");
-                    node_optional = node.next;
+                    v = node.next;
                 }
                 break :blk .{ .ArrayInitialization = array.toOwnedSlice() catch @panic("FATAL COMPILER ERROR: Out of memory") };
             },
@@ -512,10 +509,9 @@ const ExpressionParser = struct {
         try p.adv(); //consume rparen
 
         var array = std.ArrayList(AST.Expression).init(p.node_arena.allocator());
-        var node_optional = ll_head;
-        while (node_optional) |node| {
+        while (ll_head) |node| {
             array.append(node.expr) catch @panic("FATAL COMPILER ERROR: Out of memory");
-            node_optional = node.next;
+            ll_head = node.next;
         }
         expr.args_list = array.toOwnedSlice() catch @panic("FATAL COMPILER ERROR: Out of memory");
 
@@ -544,10 +540,9 @@ const ExpressionParser = struct {
         try p.adv(); //consume rbrace
 
         var fields = std.ArrayList(AST.Field).init(p.node_arena.allocator());
-        var ll_head = v;
-        while (ll_head) |node| {
+        while (v) |node| {
             fields.append(.{ .field = node.field, .expr = node.expr }) catch @panic("FATAL COMPILER ERROR: Out of memory");
-            ll_head = node.next;
+            v = node.next;
         }
 
         const new_node = p.new_node(AST.RecordInitializationNode);
