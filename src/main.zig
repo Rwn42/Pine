@@ -83,20 +83,20 @@ pub fn main() !void {
         return;
     }
 
-    std.log.info("Generating IR...", .{});
+    // std.log.info("Generating IR...", .{});
 
-    const program = ir.generate_main(allocator, p.top_level) catch return;
-    defer allocator.free(program);
+    // const program = ir.generate_main(allocator, p.top_level) catch return;
+    // defer allocator.free(program);
 
-    if (cli_options.output_ir) {
-        try print_ir(output_writer, program);
-        return;
-    }
+    // if (cli_options.output_ir) {
+    //     try print_ir(output_writer, program);
+    //     return;
+    // }
 
-    std.log.info("Interpreting...", .{});
+    // std.log.info("Interpreting...", .{});
 
-    var interpreter = Interpreter.init_from_program(program, allocator);
-    try interpreter.run();
+    // var interpreter = Interpreter.init_from_program(program, allocator);
+    // try interpreter.run();
 }
 
 //wanted to use argIterator here but i couldnt get it to work

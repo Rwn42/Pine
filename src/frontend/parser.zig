@@ -13,8 +13,6 @@ const ParseError = error{
     NotEnoughData,
 };
 
-//TODO: move away from linked lists for nodes that shouldnt have it since most need to be reversed anyway
-
 pub const ParserState = struct {
     const Self = @This();
 
@@ -134,16 +132,25 @@ pub const DeclarationParser = struct {
 
     fn parse_record_decl(p: *ParserState, name_tk: Token) !AST.Declaration {
         const decl = p.new_node(AST.RecordDeclarationNode);
+        var fields = std.ArrayList(AST.Param).init(p.node_arena.allocator());
         decl.name_tk = name_tk;
 
         _ = try p.expect_delimiter(.Lbrace);
-        try parse_param_list(p, &decl.fields);
-        _ = try p.assert_token_is(.Rbrace);
 
-        if (decl.fields == null) {
+        var ll_head: ?*AST.ParamList = null;
+        try parse_param_list(p, &ll_head);
+        var node_optional = ll_head;
+        while (node_optional) |node| {
+            fields.append(.{ .name_tk = node.name_tk, .typ = node.typ }) catch @panic("FATAL COMPILER ERROR: Out of memory");
+            node_optional = node.next;
+        }
+        decl.fields = fields.toOwnedSlice() catch @panic("FATAL COMPILER ERROR: Out of memory");
+        if (decl.fields.len <= 0) {
             std.log.err("Record must contain atleast one field {s}", .{name_tk});
             return ParseError.NotEnoughData;
         }
+
+        _ = try p.assert_token_is(.Rbrace);
 
         return .{ .RecordDeclaration = decl };
     }
@@ -158,20 +165,27 @@ pub const DeclarationParser = struct {
     fn parse_func_decl(p: *ParserState, name_tk: Token) !AST.Declaration {
         var decl = p.new_node(AST.FunctionDeclarationNode);
         var body = std.ArrayList(AST.Statement).init(p.node_arena.allocator());
+        var params = std.ArrayList(AST.Param).init(p.node_arena.allocator());
 
         decl.name_tk = name_tk;
-        decl.params = null;
+        decl.params = undefined;
         decl.return_typ = undefined;
 
         try p.expect_delimiter(.Lparen);
 
         if (!TokenType.eq(p.token.tag, .Rparen)) {
-            try parse_param_list(p, &decl.params);
-            try p.adv();
-        } else {
-            try p.adv();
+            var ll_head: ?*AST.ParamList = null;
+            try parse_param_list(p, &ll_head);
+            var node_optional = ll_head;
+            while (node_optional) |node| {
+                params.append(.{ .name_tk = node.name_tk, .typ = node.typ }) catch @panic("FATAL COMPILER ERROR: Out of memory");
+                node_optional = node.next;
+            }
         }
 
+        try p.adv();
+
+        decl.params = params.toOwnedSlice() catch @panic("FATAL COMPILER ERROR: Out of memory");
         decl.return_typ = try TypeParser.parse(p);
 
         _ = try p.assert_token_is(.Lbrace);
@@ -392,13 +406,15 @@ const ExpressionParser = struct {
             .Lbracket => blk: {
                 try p.adv();
                 var v: ?*AST.ExprList = null;
+                var array = std.ArrayList(AST.Expression).init(p.node_arena.allocator());
                 try parse_arg(p, &v, .Rbracket);
                 _ = try p.expect(.Rbracket);
-                if (v) |node| {
-                    break :blk .{ .ArrayInitialization = node };
+                var node_optional = v;
+                while (node_optional) |node| {
+                    array.append(node.expr) catch @panic("FATAL COMPILER ERROR: Out of memory");
+                    node_optional = node.next;
                 }
-                std.log.err("Array intialization must contain atleast one value near {s}", .{p.token});
-                return ParseError.UnexpectedToken;
+                break :blk .{ .ArrayInitialization = array.toOwnedSlice() catch @panic("FATAL COMPILER ERROR: Out of memory") };
             },
             .Identifier => |text| blk: {
                 break :blk switch (p.peek_token.tag) {
@@ -484,15 +500,24 @@ const ExpressionParser = struct {
     fn parse_call(p: *ParserState) !AST.Expression {
         var expr = p.new_node(AST.FunctionInvokationNode);
         expr.name_tk = p.token;
-        expr.args_list = null;
+
+        var ll_head: ?*AST.ExprList = null;
 
         try p.adv(); //lparen cur token
         try p.adv(); //first argument / rparen is cur token
 
         if (TokenType.eq(p.token.tag, .Rparen)) return .{ .FunctionInvokation = expr };
 
-        try parse_arg(p, &expr.args_list, .Rparen);
+        try parse_arg(p, &ll_head, .Rparen);
         try p.adv(); //consume rparen
+
+        var array = std.ArrayList(AST.Expression).init(p.node_arena.allocator());
+        var node_optional = ll_head;
+        while (node_optional) |node| {
+            array.append(node.expr) catch @panic("FATAL COMPILER ERROR: Out of memory");
+            node_optional = node.next;
+        }
+        expr.args_list = array.toOwnedSlice() catch @panic("FATAL COMPILER ERROR: Out of memory");
 
         return .{ .FunctionInvokation = expr };
     }
@@ -518,15 +543,21 @@ const ExpressionParser = struct {
         try parse_field(p, &v);
         try p.adv(); //consume rbrace
 
-        const new_node = p.new_node(AST.RecordInitializationNode);
-        new_node.name_tk = name;
-        if (v) |node| {
-            new_node.fields = node;
-            return .{ .RecordInitialization = new_node };
+        var fields = std.ArrayList(AST.Field).init(p.node_arena.allocator());
+        var ll_head = v;
+        while (ll_head) |node| {
+            fields.append(.{ .field = node.field, .expr = node.expr }) catch @panic("FATAL COMPILER ERROR: Out of memory");
+            ll_head = node.next;
         }
 
-        std.log.err("record initialization must initialize fields near {s}", .{p.token});
-        return ParseError.UnexpectedToken;
+        const new_node = p.new_node(AST.RecordInitializationNode);
+        new_node.name_tk = name;
+        new_node.fields = fields.toOwnedSlice() catch @panic("FATAL COMPILER ERROR: Out of memory");
+        if (new_node.fields.len <= 0) {
+            std.log.err("record initialization must initialize fields near {s}", .{p.token});
+            return ParseError.UnexpectedToken;
+        }
+        return .{ .RecordInitialization = new_node };
     }
 
     fn parse_field(p: *ParserState, prev: *?*AST.FieldList) !void {

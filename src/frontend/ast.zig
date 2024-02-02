@@ -52,7 +52,8 @@ pub const Declaration = union(enum) {
             .FunctionDeclaration => |decl| {
                 try writer.print("fn {s}\n", .{decl.name_tk.tag});
 
-                if (decl.params) |p| try writer.print("    params: {s}\n", .{p});
+                try writer.print("params: ", .{});
+                for (decl.params) |p| try writer.print("{s} ", .{p});
 
                 try writer.print("    return: {s}\n", .{decl.return_typ});
 
@@ -63,7 +64,8 @@ pub const Declaration = union(enum) {
             },
             .RecordDeclaration => |decl| {
                 try writer.print("record {s}\n", .{decl.name_tk.tag});
-                try writer.print("    fields: {s}\n", .{decl.fields.?});
+                try writer.print("params: ", .{});
+                for (decl.fields) |p| try writer.print("{s} ", .{p});
             },
             .ConstantDeclaration => |decl| {
                 try writer.print("constant: {s} :: {s}", .{ decl.name_tk.tag, decl.value });
@@ -79,14 +81,14 @@ pub const Declaration = union(enum) {
 pub const FunctionDeclarationNode = struct {
     name_tk: Token,
     return_typ: DefinedType,
-    params: ?*ParamList,
+    params: []Param,
     body: []Statement,
 };
 
 //name :: record{field1: type, field2: type}
 pub const RecordDeclarationNode = struct {
     name_tk: Token,
-    fields: ?*ParamList,
+    fields: []Param,
 };
 
 pub const ParamList = struct {
@@ -98,6 +100,17 @@ pub const ParamList = struct {
     pub fn format(self: ParamList, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         try writer.print("{s} : {s}, ", .{ self.name_tk.tag, self.typ });
         if (self.next) |next| try next.format(fmt, options, writer);
+    }
+};
+
+pub const Param = struct {
+    name_tk: Token,
+    typ: DefinedType,
+
+    pub fn format(self: Param, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = fmt;
+        _ = options;
+        try writer.print("{s} : {s}, ", .{ self.name_tk.tag, self.typ });
     }
 };
 
@@ -184,7 +197,7 @@ pub const Expression = union(enum) {
     RangeExpression: *BinaryExpressionNode,
     UnaryExpression: *UnaryExpressionNode,
     FunctionInvokation: *FunctionInvokationNode,
-    ArrayInitialization: *ExprList,
+    ArrayInitialization: []Expression,
     RecordInitialization: *RecordInitializationNode,
     Cast: *CastExpressionNode,
     LiteralInt: Token,
@@ -214,10 +227,10 @@ pub const Expression = union(enum) {
             .FunctionInvokation => |expr| {
                 try writer.print("{s} ( ", .{expr.name_tk.tag});
                 defer writer.print(")", .{}) catch {};
-                if (expr.args_list) |list| try writer.print("{s}", .{list});
+                for (expr.args_list) |arg| try writer.print("{s} ", .{arg});
             },
             .ArrayInitialization => |expr| {
-                try writer.print(" array init: {s}", .{expr});
+                for (expr) |arg| try writer.print("{s} ", .{arg});
             },
             .RecordInitialization => |expr| {
                 try writer.print("record init: type {s},  {s}", .{ expr.name_tk, expr.fields });
@@ -250,22 +263,27 @@ pub const UnaryExpressionNode = struct {
 // func(a + b);
 pub const FunctionInvokationNode = struct {
     name_tk: Token,
-    args_list: ?*ExprList,
+    args_list: []Expression,
 };
 
 pub const ExprList = struct {
     expr: Expression,
     next: ?*ExprList,
-
-    pub fn format(self: ExprList, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-        try writer.print("{s}, ", .{self.expr});
-        if (self.next) |next| try next.format(fmt, options, writer);
-    }
 };
 
 pub const RecordInitializationNode = struct {
     name_tk: Token,
-    fields: *FieldList,
+    fields: []Field,
+};
+
+pub const Field = struct {
+    field: Token,
+    expr: Expression,
+    pub fn format(self: Field, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = fmt;
+        _ = options;
+        try writer.print("{s} : {s}, ", .{ self.field.tag, self.expr });
+    }
 };
 
 pub const FieldList = struct {
