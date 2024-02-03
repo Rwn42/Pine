@@ -227,7 +227,9 @@ pub const Expression = union(enum) {
             .FunctionInvokation => |expr| {
                 try writer.print("{s} ( ", .{expr.name_tk.tag});
                 defer writer.print(")", .{}) catch {};
-                for (expr.args_list) |arg| try writer.print("{s} ", .{arg});
+                if (expr.args_list) |args_list| {
+                    for (args_list) |arg| try writer.print("{s} ", .{arg});
+                }
             },
             .ArrayInitialization => |expr| {
                 for (expr) |arg| try writer.print("{s} ", .{arg});
@@ -263,7 +265,7 @@ pub const UnaryExpressionNode = struct {
 // func(a + b);
 pub const FunctionInvokationNode = struct {
     name_tk: Token,
-    args_list: []Expression,
+    args_list: ?[]Expression,
 };
 
 pub const ExprList = struct {

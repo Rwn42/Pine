@@ -497,6 +497,7 @@ const ExpressionParser = struct {
     fn parse_call(p: *ParserState) !AST.Expression {
         var expr = p.new_node(AST.FunctionInvokationNode);
         expr.name_tk = p.token;
+        expr.args_list = null;
 
         var ll_head: ?*AST.ExprList = null;
 
@@ -513,7 +514,8 @@ const ExpressionParser = struct {
             array.append(node.expr) catch @panic("FATAL COMPILER ERROR: Out of memory");
             ll_head = node.next;
         }
-        expr.args_list = array.toOwnedSlice() catch @panic("FATAL COMPILER ERROR: Out of memory");
+
+        expr.*.args_list = array.toOwnedSlice() catch @panic("FATAL COMPILER ERROR: Out of memory");
 
         return .{ .FunctionInvokation = expr };
     }

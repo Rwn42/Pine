@@ -7,10 +7,6 @@ const TokenType = @import("./frontend/token.zig").TokenType;
 
 const StringManager = @import("common.zig").StringManager;
 
-const ir = @import("backend/ir.zig");
-const Interpreter = @import("./backend/interpreter.zig").Interpreter;
-const Operation = @import("./backend/bytecode.zig").Operation;
-
 const MAX_FILE_BYTES = 1024 * 1024;
 
 pub fn main() !void {
@@ -32,6 +28,7 @@ pub fn main() !void {
             CLIOptions.CLIError.NoInput => std.log.err("No input file provided", .{}),
             CLIOptions.CLIError.NoOutput => std.log.err("No output file provided after -o", .{}),
             CLIOptions.CLIError.ConflictingFlag => std.log.err("Two compiler flags conflict... cannot use -lex and -parse", .{}),
+            else => {},
         }
         try usage(stdout);
         return;
@@ -83,20 +80,7 @@ pub fn main() !void {
         return;
     }
 
-    std.log.info("Generating IR...", .{});
-
-    const program = ir.generate_main(allocator, p.top_level) catch return;
-    defer allocator.free(program);
-
-    if (cli_options.output_ir) {
-        try print_ir(output_writer, program);
-        return;
-    }
-
-    std.log.info("Interpreting...", .{});
-
-    var interpreter = Interpreter.init_from_program(program, allocator);
-    try interpreter.run();
+    std.log.info("Generating Assembly...", .{});
 }
 
 //wanted to use argIterator here but i couldnt get it to work
@@ -106,13 +90,12 @@ const CLIOptions = struct {
     pos: usize = 1,
     lex_only: bool = false,
     parse_only: bool = false,
-    native: bool = false,
-    output_ir: bool = false,
 
     pub const CLIError = error{
         NoInput,
         NoOutput,
         ConflictingFlag,
+        FlagDoesNotExist,
     };
 
     pub fn create(args: [][]u8) !CLIOptions {
@@ -136,10 +119,9 @@ const CLIOptions = struct {
             } else if (std.mem.eql(u8, "-parse", args[opt.pos])) {
                 if (opt.lex_only) return CLIError.ConflictingFlag;
                 opt.parse_only = true;
-            } else if (std.mem.eql(u8, "-native", args[opt.pos])) {
-                opt.native = true;
-            } else if (std.mem.eql(u8, "-ir", args[opt.pos])) {
-                opt.output_ir = true;
+            } else {
+                std.log.err("Unrecognized Compiler Flag {s}", .{args[opt.pos]});
+                return CLIError.FlagDoesNotExist;
             }
         }
 
@@ -154,8 +136,7 @@ fn usage(writer: anytype) !void {
     try writer.print("  -native: compile to native code\n", .{});
     try writer.print("  -lex: ONLY perform lexical analysis (mainly for compiler debugging purposes)\n", .{});
     try writer.print("  -parse: ONLY generate the AST (mainly for compiler debugging purposes)\n", .{});
-    try writer.print("  -ir: ONLY output textual representation of intermediate representation\n", .{});
-    try writer.print("ex: osmium main.os -native -o hello.exe\n", .{});
+    try writer.print("ex: osmium main.os -o hello.exe\n", .{});
 }
 
 fn print_lexer(writer: anytype, l: *lexing.Lexer) !void {
@@ -168,11 +149,5 @@ fn print_lexer(writer: anytype, l: *lexing.Lexer) !void {
 fn print_parser(writer: anytype, p: *parsing.ParserState) !void {
     for (p.top_level) |decl| {
         try writer.print("{any} \n", .{decl});
-    }
-}
-
-fn print_ir(writer: anytype, program: []Operation) !void {
-    for (program) |op| {
-        try writer.print("{any} \n", .{op});
     }
 }
