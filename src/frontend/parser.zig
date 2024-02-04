@@ -33,6 +33,41 @@ pub const ParserState = struct {
         };
     }
 
+    pub fn file_ast(self: *Self) AST.AST {
+        self.parse();
+
+        const max_len = self.top_level.len;
+        var allocator = self.node_arena.allocator();
+
+        var constants = std.ArrayList(*AST.ConstantDeclarationNode).initCapacity(allocator, max_len) catch {
+            @panic("FATAL COMPILER ERROR: Out of memory");
+        };
+        var functions = std.ArrayList(*AST.FunctionDeclarationNode).initCapacity(allocator, max_len) catch {
+            @panic("FATAL COMPILER ERROR: Out of memory");
+        };
+        var imports = std.ArrayList(Token).initCapacity(allocator, max_len) catch {
+            @panic("FATAL COMPILER ERROR: Out of memory");
+        };
+        var records = std.ArrayList(*AST.RecordDeclarationNode).initCapacity(allocator, max_len) catch {
+            @panic("FATAL COMPILER ERROR: Out of memory");
+        };
+        for (self.top_level) |decl| {
+            _ = switch (decl) {
+                .ConstantDeclaration => |c_decl| constants.append(c_decl),
+                .FunctionDeclaration => |f_decl| functions.append(f_decl),
+                .RecordDeclaration => |r_decl| records.append(r_decl),
+                .ImportDeclaration => |i_decl| imports.append(i_decl),
+            } catch @panic("FATAL COMPILER ERROR: Out of memory");
+        }
+
+        return AST.AST{
+            .constants = constants.toOwnedSlice() catch @panic("FATAL COMPILER ERROR: Out of memory"),
+            .functions = functions.toOwnedSlice() catch @panic("FATAL COMPILER ERROR: Out of memory"),
+            .imports = imports.toOwnedSlice() catch @panic("FATAL COMPILER ERROR: Out of memory"),
+            .records = records.toOwnedSlice() catch @panic("FATAL COMPILER ERROR: Out of memory"),
+        };
+    }
+
     //fills the top level member with all "roots" of the AST
     pub fn parse(self: *Self) void {
         var top_level_declarations = std.ArrayList(AST.Declaration).init(self.node_arena.allocator());

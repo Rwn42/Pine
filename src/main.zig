@@ -4,8 +4,8 @@ const lexing = @import("./frontend/lexer.zig");
 const parsing = @import("./frontend/parser.zig");
 const Token = @import("./frontend/token.zig").Token;
 const TokenType = @import("./frontend/token.zig").TokenType;
-
 const StringManager = @import("common.zig").StringManager;
+const compile_file = @import("compile.zig").compile_file;
 
 const MAX_FILE_BYTES = 1024 * 1024;
 
@@ -40,9 +40,6 @@ pub fn main() !void {
         return;
     };
     defer output_fd.close();
-    var output_buffer = std.io.bufferedWriter(output_fd.writer());
-    defer output_buffer.flush() catch {};
-    const output_writer = output_buffer.writer();
 
     //open the input file for reading
     const file_buffer = std.fs.cwd().readFileAlloc(allocator, cli_options.input_file, MAX_FILE_BYTES) catch |err| {
@@ -58,33 +55,33 @@ pub fn main() !void {
         return;
     }
 
-    //compilation begins here
-    std.log.info("Parsing...", .{});
+    if (cli_options.lex_only or cli_options.parse_only) {
+        var output_buffer = std.io.bufferedWriter(output_fd.writer());
+        defer output_buffer.flush() catch {};
+        const output_writer = output_buffer.writer();
 
-    var sm = StringManager.init(allocator);
-    defer sm.destroy();
+        std.log.info("Parsing...", .{});
+        var sm = StringManager.init(allocator);
+        defer sm.destroy();
+        var l = lexing.Lexer.init(file_buffer, cli_options.input_file, &sm) orelse return;
 
-    var l = lexing.Lexer.init(file_buffer, cli_options.input_file, &sm) orelse return;
-    if (cli_options.lex_only) {
-        try print_lexer(output_writer, &l);
+        if (cli_options.lex_only) {
+            try print_lexer(output_writer, &l);
+            return;
+        }
 
-        return;
-    }
-
-    var p = parsing.ParserState.init(&l, allocator) orelse return;
-    p.parse();
-    defer p.deinit();
-
-    if (cli_options.parse_only) {
+        var p = parsing.ParserState.init(&l, allocator) orelse return;
+        p.parse();
+        defer p.deinit();
         try print_parser(output_writer, &p);
         return;
     }
 
-    std.log.info("Generating Assembly...", .{});
+    _ = compile_file(file_buffer, cli_options.input_file, output_fd, allocator);
 }
 
 //wanted to use argIterator here but i couldnt get it to work
-const CLIOptions = struct {
+pub const CLIOptions = struct {
     input_file: []const u8,
     output_file: []const u8,
     pos: usize = 1,

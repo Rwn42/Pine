@@ -4,6 +4,13 @@ const Location = @import("../common.zig").Location;
 const Token = @import("token.zig").Token;
 const TokenType = @import("token.zig").TokenType;
 
+pub const AST = struct {
+    imports: []Token,
+    functions: []*FunctionDeclarationNode,
+    records: []*RecordDeclarationNode,
+    constants: []*ConstantDeclarationNode,
+};
+
 pub const DefinedType = union(enum) {
     Array: *ArrayType,
     Pointer: *PointerType,
