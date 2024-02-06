@@ -77,7 +77,7 @@ pub fn main() !void {
         return;
     }
 
-    _ = compile_file(file_buffer, cli_options.input_file, output_fd, allocator);
+    compile_file(file_buffer, cli_options.input_file, output_fd, allocator) orelse return;
 }
 
 //wanted to use argIterator here but i couldnt get it to work
