@@ -77,7 +77,8 @@ pub fn main() !void {
         return;
     }
 
-    compile_file(file_buffer, cli_options.input_file, output_fd, allocator) orelse return;
+    var tu = compile_file(file_buffer, cli_options.input_file, output_fd, allocator) catch return;
+    defer tu.types.deinit();
 }
 
 //wanted to use argIterator here but i couldnt get it to work
