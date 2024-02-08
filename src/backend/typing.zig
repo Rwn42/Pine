@@ -74,6 +74,7 @@ pub const Types = struct {
     pub const Primitive = std.ComptimeStringMap(TypeInfo, .{
         .{ "int", .{ .size = 8, .tag = .Integer, .child = null } },
         .{ "float", .{ .size = 8, .tag = .Float, .child = null } },
+        .{ "word", .{ .size = 8, .tag = .Word, .child = null } },
         .{ "bool", .{ .size = 1, .tag = .Bool, .child = null } },
         .{ "byte", .{ .size = 1, .tag = .Byte, .child = null } },
         .{ "void", .{ .size = 0, .tag = .Void, .child = null } },

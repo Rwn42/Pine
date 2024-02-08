@@ -72,7 +72,8 @@ pub fn compile_file(input_buffer: []u8, file_name: []const u8, output_fd: std.fs
     }
 
     //at this point the translation unit is ready to be compiled
-    const instructions = try IR.generate_ir(tu, file_ast.functions);
+    const instructions = try IR.generate_ir(tu, file_ast.functions, allocator);
+    defer allocator.free(instructions);
     try compile_ir(instructions, output_fd);
 
     return tu;
