@@ -35,6 +35,7 @@ fn compile_file(filepath: []const u8, allocator: std.mem.Allocator) ?void {
 
     //generate ast
     const ast = parsing.ast_from_file(filepath, contents, allocator) catch |err| {
+        allocator.free(contents);
         switch (err) {
             error.OutOfMemory => @panic("Out of memory!"),
             else => return null,
@@ -82,12 +83,10 @@ fn output_lexer(filepath: []const u8, output_path: []const u8, allocator: std.me
     defer output_fd.close();
 
     var lexer = lexing.Lexer.init(contents, filepath, allocator);
+    defer lexer.deinit();
     while (lexer.next()) |token| {
         if (token.tag == .EOF) break;
-        var bw = std.io.bufferedWriter(output_fd.writer());
-        const w = bw.writer();
-        w.print("{s}\n", .{token}) catch return;
-        bw.flush() catch return;
+        output_fd.writer().print("{s}\n", .{token}) catch return;
     }
 }
 

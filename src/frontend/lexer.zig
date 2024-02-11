@@ -42,6 +42,10 @@ pub const Lexer = struct {
         };
     }
 
+    pub fn deinit(self: *Self) void {
+        self.sm.deinit();
+    }
+
     pub fn next(self: *Self) ?Token {
         while (std.ascii.isWhitespace(self.char())) {
             if (self.char() == '\n') {
@@ -155,12 +159,13 @@ pub const Lexer = struct {
 
         return cwt;
     }
-
+    //any number of any base including floats
     fn lex_number(self: *Self, base: u8) !TokenTag {
         const start_idx = self.pos;
         self.adv_while(is_num_or_ident);
         const whole_component = self.contents[start_idx .. self.pos + 1];
 
+        //if not a float or isnt followed by a range operator (..) then simple number
         if (self.peek() != '.' or (self.peek() == '.' and self.peek2() == '.')) {
             const n = std.fmt.parseInt(i64, whole_component, base) catch |err| {
                 std.log.err("Could not parse integer {s} {s}", .{ whole_component, self.loc });
@@ -169,6 +174,7 @@ pub const Lexer = struct {
             return .{ .Integer = n };
         }
 
+        //float case here
         self.adv();
 
         if (base != 10) {
