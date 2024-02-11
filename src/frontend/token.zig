@@ -1,17 +1,24 @@
 const std = @import("std");
-const assert = std.debug.assert;
 
-const Location = @import("../common.zig").Location;
+pub const FileLocation = struct {
+    row: usize,
+    col: usize,
+    filename: []const u8,
 
-pub const TokenType = union(enum) {
+    pub fn format(self: FileLocation, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        _ = fmt;
+        _ = options;
+        try writer.print("{s}:{d}:{d}", .{ self.filename, self.row, self.col });
+    }
+};
+
+pub const TokenTag = union(enum) {
     //tokens with data
-    Identifier: []u8,
-    String: []u8,
+    Identifier: []const u8,
+    String: []const u8,
     Integer: i64,
     Float: f64,
 
-    //keywords
-    KEYWORD_COUNT_BEGIN, // used to assert that the keywords map is exhaustive
     Fn,
     Record,
     Return,
@@ -19,12 +26,10 @@ pub const TokenType = union(enum) {
     False,
     If,
     Else,
-    For,
     Cast,
     Import,
     While,
-    TempPrint,
-    KEYWORD_COUNT_END, // used to assert that the keywords map is exhaustive
+    Foreign,
 
     // Binary operators
     Plus,
@@ -39,18 +44,17 @@ pub const TokenType = union(enum) {
     NotEqual,
     Equal,
 
-    //unary operators
+    //punctuation
+    Dot,
+    DoubleDot,
+    Comma,
+    Colon,
+    DoubleColon,
     Hat,
     ExclamationMark,
     Ampersand,
 
-    //punctuation
-    Dot,
-    FatArrow,
-    Comma,
-    Bar,
-    Semicolon,
-    Colon,
+    //brackets
     Lparen,
     Rparen,
     Lbrace,
@@ -60,109 +64,89 @@ pub const TokenType = union(enum) {
 
     //misc / control
     EOF,
+    Newline,
 
-    pub const Keywords = std.ComptimeStringMap(TokenType, .{
+    pub const Keywords = std.ComptimeStringMap(TokenTag, .{
         .{ "fn", .Fn },
         .{ "record", .Record },
         .{ "false", .False },
         .{ "true", .True },
         .{ "if", .If },
         .{ "else", .Else },
-        .{ "for", .For },
         .{ "while", .While },
         .{ "return", .Return },
         .{ "#cast", .Cast },
         .{ "#import", .Import },
-        .{ "#print", .TempPrint },
+        .{ "#foreign", .Foreign },
     });
 
-    pub fn eq(t1: TokenType, t2: TokenType) bool {
-        return @intFromEnum(t1) == @intFromEnum(t2);
-    }
-
-    pub const Repr = std.ComptimeStringMap([]const u8, .{
-        .{ @tagName(TokenType.Fn), "fn" },
-        .{ @tagName(TokenType.Record), "record" },
-        .{ @tagName(TokenType.True), "true" },
-        .{ @tagName(TokenType.False), "false" },
-        .{ @tagName(TokenType.If), "if" },
-        .{ @tagName(TokenType.Else), "else" },
-        .{ @tagName(TokenType.Return), "return" },
-        .{ @tagName(TokenType.For), "for" },
-        .{ @tagName(TokenType.While), "while" },
-        .{ @tagName(TokenType.Plus), "+" },
-        .{ @tagName(TokenType.Dash), "-" },
-        .{ @tagName(TokenType.SlashForward), "/" },
-        .{ @tagName(TokenType.Asterisk), "*" },
-        .{ @tagName(TokenType.DoubleEqual), "==" },
-        .{ @tagName(TokenType.LessThan), "<" },
-        .{ @tagName(TokenType.LessThanEqual), "<=" },
-        .{ @tagName(TokenType.GreaterThan), ">" },
-        .{ @tagName(TokenType.GreaterThanEqual), ">=" },
-        .{ @tagName(TokenType.NotEqual), "!=" },
-        .{ @tagName(TokenType.Hat), "^" },
-        .{ @tagName(TokenType.ExclamationMark), "!" },
-        .{ @tagName(TokenType.Ampersand), "&" },
-        .{ @tagName(TokenType.Dot), "." },
-        .{ @tagName(TokenType.FatArrow), "=>" },
-        .{ @tagName(TokenType.Bar), "|" },
-        .{ @tagName(TokenType.Comma), "," },
-        .{ @tagName(TokenType.Semicolon), ";" },
-        .{ @tagName(TokenType.Colon), ":" },
-        .{ @tagName(TokenType.Lparen), "(" },
-        .{ @tagName(TokenType.Rparen), ")" },
-        .{ @tagName(TokenType.Lbrace), "{" },
-        .{ @tagName(TokenType.Rbrace), "}" },
-        .{ @tagName(TokenType.Lbracket), "[" },
-        .{ @tagName(TokenType.Rbracket), "]" },
-        .{ @tagName(TokenType.EOF), "End of File" },
-        .{ @tagName(TokenType.TempPrint), "#print" },
-        .{ @tagName(TokenType.Cast), "#cast" },
-        .{ @tagName(TokenType.Import), "#import" },
-        .{ @tagName(TokenType.Equal), "=" },
-    });
-
-    pub fn format(self: TokenType, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+    pub fn format(self: TokenTag, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = options;
         _ = fmt;
 
         switch (self) {
-            .Identifier, .String => try writer.print("Identifier", .{}),
-            .Integer => try writer.print("Integer", .{}),
-            .Float => try writer.print("Float", .{}),
+            .Identifier => |val| try writer.print("Identifier {s}", .{val}),
+            .String => |val| try writer.print("String \"{s}\"", .{val}),
+            .Integer => |num| try writer.print("Untyped Integer {d}", .{num}),
+            .Float => |num| try writer.print("Float {d}", .{num}),
             else => {
-                if (Repr.get(@tagName(self)) == null) {
-                    try writer.print("no representation for tag {s}", .{@tagName(self)});
-                } else try writer.print("'{s}'", .{Repr.get(@tagName(self)).?});
+                if (TagToStr.get(@tagName(self))) |repr| {
+                    try writer.print("{s}", .{repr});
+                } else {
+                    @panic("Compiler Error: Token Does Not Have Representation");
+                }
             },
         }
     }
 };
 
 pub const Token = struct {
-    loc: Location,
-    tag: TokenType,
-
+    location: FileLocation,
+    tag: TokenTag,
     pub fn format(self: Token, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-        _ = fmt;
         _ = options;
-        switch (self.tag) {
-            .Identifier, .String => |val| try writer.print("'{s}'", .{val}),
-            .Integer => |val| try writer.print("'{d}'", .{val}),
-            .Float => |val| try writer.print("'{d}'", .{val}),
-            else => {
-                if (TokenType.Repr.get(@tagName(self.tag)) == null) {
-                    try writer.print("no representation for tag {s}", .{@tagName(self.tag)});
-                } else try writer.print("'{s}'", .{TokenType.Repr.get(@tagName(self.tag)).?});
-            },
-        }
-        try writer.print(" {s}", .{self.loc});
+        _ = fmt;
+        try writer.print("{s} at {s}", .{ self.tag, self.location });
     }
 };
 
-//assert keyword map is exhaustive
-comptime {
-    const keyword_begin = @intFromEnum(TokenType.KEYWORD_COUNT_BEGIN);
-    const keyword_end = @intFromEnum(TokenType.KEYWORD_COUNT_END);
-    assert((keyword_end - keyword_begin) - 1 == TokenType.Keywords.kvs.len);
-}
+pub const TagToStr = std.ComptimeStringMap([]const u8, .{
+    .{ @tagName(TokenTag.Fn), "fn" },
+    .{ @tagName(TokenTag.Record), "record" },
+    .{ @tagName(TokenTag.True), "true" },
+    .{ @tagName(TokenTag.False), "false" },
+    .{ @tagName(TokenTag.If), "if" },
+    .{ @tagName(TokenTag.Else), "else" },
+    .{ @tagName(TokenTag.Return), "return" },
+    .{ @tagName(TokenTag.While), "while" },
+    .{ @tagName(TokenTag.Plus), "+" },
+    .{ @tagName(TokenTag.Dash), "-" },
+    .{ @tagName(TokenTag.SlashForward), "/" },
+    .{ @tagName(TokenTag.Asterisk), "*" },
+    .{ @tagName(TokenTag.DoubleEqual), "==" },
+    .{ @tagName(TokenTag.LessThan), "<" },
+    .{ @tagName(TokenTag.LessThanEqual), "<=" },
+    .{ @tagName(TokenTag.GreaterThan), ">" },
+    .{ @tagName(TokenTag.GreaterThanEqual), ">=" },
+    .{ @tagName(TokenTag.NotEqual), "!=" },
+    .{ @tagName(TokenTag.Equal), "=" },
+    .{ @tagName(TokenTag.Hat), "^" },
+    .{ @tagName(TokenTag.ExclamationMark), "!" },
+    .{ @tagName(TokenTag.Ampersand), "&" },
+    .{ @tagName(TokenTag.Dot), "." },
+    .{ @tagName(TokenTag.DoubleDot), ".." },
+    .{ @tagName(TokenTag.Comma), "," },
+    .{ @tagName(TokenTag.Colon), ":" },
+    .{ @tagName(TokenTag.DoubleColon), "::" },
+    .{ @tagName(TokenTag.Lparen), "(" },
+    .{ @tagName(TokenTag.Rparen), ")" },
+    .{ @tagName(TokenTag.Lbrace), "{" },
+    .{ @tagName(TokenTag.Rbrace), "}" },
+    .{ @tagName(TokenTag.Lbracket), "[" },
+    .{ @tagName(TokenTag.Rbracket), "]" },
+    .{ @tagName(TokenTag.EOF), "End of File" },
+    .{ @tagName(TokenTag.Newline), "Newline" },
+    .{ @tagName(TokenTag.Foreign), "#foreign" },
+    .{ @tagName(TokenTag.Cast), "#cast" },
+    .{ @tagName(TokenTag.Import), "#import" },
+});
