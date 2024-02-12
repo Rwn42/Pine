@@ -80,6 +80,10 @@ pub const TokenTag = union(enum) {
         .{ "#foreign", .Foreign },
     });
 
+    pub fn eq(t1: TokenTag, t2: TokenTag) bool {
+        return @intFromEnum(t1) == @intFromEnum(t2);
+    }
+
     pub fn format(self: TokenTag, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
         _ = options;
         _ = fmt;

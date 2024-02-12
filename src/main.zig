@@ -3,6 +3,8 @@ const std = @import("std");
 const lexing = @import("frontend/lexer.zig");
 const parsing = @import("frontend/parser.zig");
 
+const ast = @import("frontend/ast.zig");
+
 pub fn main() void {
     //this allocator will be used for everything for now
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -21,7 +23,8 @@ pub fn main() void {
     };
     const opt = Options.from_iterator(&args, stdout) orelse return;
 
-    if (opt.lex) output_lexer(opt.main_file, opt.output_name, allocator);
+    if (opt.lex) output_lexer(opt.main_file, allocator);
+    if (opt.parse) output_parser(opt.main_file, allocator);
 
     //compile the main file here
     compile_file(opt.main_file, allocator) orelse return;
@@ -31,10 +34,15 @@ pub fn main() void {
 
 fn compile_file(filepath: []const u8, allocator: std.mem.Allocator) ?void {
     //open the source file & confirm length
-    const contents = open_file(filepath, allocator) orelse return;
+    const contents = open_file(filepath, allocator) orelse return null;
+
+    var lexer = lexing.Lexer.init(contents, filepath, allocator);
+    defer lexer.deinit();
+    var parser = parsing.ParserState.init(&lexer, allocator) orelse return null;
+    defer parser.deinit();
 
     //generate ast
-    const ast = parsing.ast_from_file(filepath, contents, allocator) catch |err| {
+    const ast_tree = parsing.ast_from_file(&parser) catch |err| {
         allocator.free(contents);
         switch (err) {
             error.OutOfMemory => @panic("Out of memory!"),
@@ -43,7 +51,7 @@ fn compile_file(filepath: []const u8, allocator: std.mem.Allocator) ?void {
     };
     allocator.free(contents);
 
-    _ = ast;
+    _ = ast_tree;
 
     //NOTE: prepare for IR (construct context for types, functions ect)
 
@@ -70,24 +78,6 @@ fn open_file(filepath: []const u8, allocator: std.mem.Allocator) ?[]u8 {
     }
 
     return file_buffer;
-}
-
-fn output_lexer(filepath: []const u8, output_path: []const u8, allocator: std.mem.Allocator) void {
-    const contents = open_file(filepath, allocator) orelse return;
-    defer allocator.free(contents);
-
-    const output_fd = std.fs.cwd().createFile(output_path, .{}) catch {
-        std.log.err("Output file {s} could not be created", .{output_path});
-        return;
-    };
-    defer output_fd.close();
-
-    var lexer = lexing.Lexer.init(contents, filepath, allocator);
-    defer lexer.deinit();
-    while (lexer.next()) |token| {
-        if (token.tag == .EOF) break;
-        output_fd.writer().print("{s}\n", .{token}) catch return;
-    }
 }
 
 const Options = struct {
@@ -135,3 +125,53 @@ const Options = struct {
         try writer.print("ex: pine main.pine -o hello.exe\n", .{});
     }
 };
+
+fn output_lexer(filepath: []const u8, allocator: std.mem.Allocator) void {
+    const contents = open_file(filepath, allocator) orelse return;
+    defer allocator.free(contents);
+
+    const output_fd = std.fs.cwd().createFile("debug_lex.txt", .{}) catch {
+        std.log.err("Output file {s} could not be created", .{"debug_lex.txt"});
+        return;
+    };
+    defer output_fd.close();
+
+    var lexer = lexing.Lexer.init(contents, filepath, allocator);
+    defer lexer.deinit();
+    while (lexer.next()) |token| {
+        if (token.tag == .EOF) break;
+        output_fd.writer().print("{s}\n", .{token}) catch return;
+    }
+}
+
+fn output_parser(filepath: []const u8, allocator: std.mem.Allocator) void {
+    const contents = open_file(filepath, allocator) orelse return;
+    defer allocator.free(contents);
+
+    const output_fd = std.fs.cwd().createFile("debug_parse.txt", .{}) catch {
+        std.log.err("Output file {s} could not be created", .{"debug_parse.txt"});
+        return;
+    };
+    defer output_fd.close();
+
+    const writer = output_fd.writer();
+
+    var lexer = lexing.Lexer.init(contents, filepath, allocator);
+    defer lexer.deinit();
+
+    var parser = parsing.ParserState.init(&lexer, allocator) orelse return;
+    defer parser.deinit();
+
+    const ast_tree = parsing.ast_from_file(&parser) catch |err| {
+        switch (err) {
+            error.OutOfMemory => @panic("Out of memory!"),
+            else => return,
+        }
+    };
+
+    for (ast_tree.functions) |v| writer.print("{s}", .{ast.Declaration{ .FunctionDeclaration = v }}) catch return;
+    for (ast_tree.foreign) |v| writer.print("{s}", .{ast.Declaration{ .ForeignDeclaration = v }}) catch return;
+    for (ast_tree.imports) |v| writer.print("importing: {s}", .{v}) catch return;
+    for (ast_tree.constants) |v| writer.print("{s}", .{ast.Declaration{ .ConstantDeclaration = v }}) catch return;
+    for (ast_tree.records) |v| writer.print("{s}", .{ast.Declaration{ .RecordDeclaration = v }}) catch return;
+}
