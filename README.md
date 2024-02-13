@@ -5,7 +5,7 @@ Pine, fomerly called Osmium, is an at *attempt* at a simple C like language writ
 **Native "Hello, World!" application**
 I want to fully support variables, control flow, records, functions, arrays, records and slices for this version
 - [x] port lexer from old version
-- [] port parser from old version
+- [x] port parser from old version
 - [] intermediate representation
 - [] native compilation
 
@@ -25,7 +25,7 @@ Subject to change.
 ## Current Hello, World! Plan
 Subject to change.
 ```
-#foreign "libc" {"printf"}
+#foreign "libc" ["printf"]
 
 main :: fn() {
     msg = c"Hello, World!" //c here to make it a c string

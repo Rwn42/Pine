@@ -2,6 +2,9 @@ const std = @import("std");
 
 const lexing = @import("frontend/lexer.zig");
 const parsing = @import("frontend/parser.zig");
+const typing = @import("backend/typing.zig");
+const ir = @import("backend/ir.zig");
+const linux = @import("backend/linux.zig");
 
 const ast = @import("frontend/ast.zig");
 
@@ -27,7 +30,10 @@ pub fn main() void {
     if (opt.parse) output_parser(opt.main_file, allocator);
 
     //compile the main file here
-    compile_file(opt.main_file, allocator) orelse return;
+    compile_file(opt.main_file, allocator) orelse {
+        std.log.info("exiting...", .{});
+        return;
+    };
 
     //NOTE: here is where we would call into fasm and ld for final executable
 }
@@ -51,14 +57,57 @@ fn compile_file(filepath: []const u8, allocator: std.mem.Allocator) ?void {
     };
     allocator.free(contents);
 
-    _ = ast_tree;
+    //NOTE: handle imports here we will need some sort of global compilation state i presume
 
-    //NOTE: prepare for IR (construct context for types, functions ect)
+    //load custom types for the file
+    var file_types = typing.Types.init(allocator) catch |err| {
+        switch (err) {
+            error.OutOfMemory => @panic("Out of memory!"),
+            else => return null,
+        }
+    };
 
-    //NOTE: generate IR
+    for (ast_tree.records) |record_decl| {
+        file_types.register_record(record_decl) catch |err| {
+            switch (err) {
+                error.OutOfMemory => @panic("Out of memory!"),
+                else => return null,
+            }
+        };
+    }
 
-    //NOTE: compile to fasm
+    for (ast_tree.functions) |function_decl| {
+        file_types.register_function(function_decl) catch |err| {
+            switch (err) {
+                error.OutOfMemory => @panic("Out of memory!"),
+                else => return null,
+            }
+        };
+    }
 
+    //generate the intermediate representation
+    var irgen = ir.IRGenerator.init(ast_tree, file_types, allocator);
+    var ir_data = irgen.generate() catch |err| {
+        switch (err) {
+            error.OutOfMemory => @panic("Out of memory!"),
+            else => return null,
+        }
+    };
+    defer irgen.deinit();
+    defer ir_data.deinit(allocator);
+
+    std.fs.cwd().deleteDir("out") catch {};
+    std.fs.cwd().makeDir("out") catch {};
+
+    const base = std.fs.path.stem(filepath);
+    const name = std.fmt.allocPrint(allocator, "{s}/{s}.fasm", .{ "./out", base }) catch {
+        @panic("Out of memory!");
+    };
+
+    defer allocator.free(name);
+
+    //compile the ir down to fasm file
+    linux.fasm_compile(name, ir_data) catch return null;
 }
 
 const MAX_FILE_BYTES = 1024 * 1024;

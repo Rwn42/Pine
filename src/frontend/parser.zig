@@ -41,11 +41,6 @@ pub fn ast_from_file(parser: *ParserState) !ast.AST {
         }
     }
 
-    if (parser.token.tag != .EOF) {
-        std.log.err("Unexpected Token {s}", .{parser.token});
-        return ParseError.UnexpectedToken;
-    }
-
     return ast.AST{
         .constants = try constant_buffer.toOwnedSlice(),
         .functions = try function_buffer.toOwnedSlice(),
