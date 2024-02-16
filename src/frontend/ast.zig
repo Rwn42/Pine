@@ -26,7 +26,7 @@ pub const Declaration = union(enum) {
         switch (self) {
             .FunctionDeclaration => |decl| {
                 try writer.print("fn {s}\n", .{decl.name_tk.tag});
-
+                try writer.print("public: {any} ", .{decl.public});
                 try writer.print("params: ", .{});
                 for (decl.params) |p| try writer.print("{s} ", .{p});
 
@@ -43,6 +43,8 @@ pub const Declaration = union(enum) {
             },
             .RecordDeclaration => |decl| {
                 try writer.print("record {s}\n", .{decl.name_tk.tag});
+                try writer.print("public: {any} ", .{decl.public});
+
                 try writer.print("params: ", .{});
                 for (decl.fields) |p| try writer.print("{s} ", .{p});
             },
@@ -67,6 +69,7 @@ pub const Declaration = union(enum) {
 pub const FunctionDeclarationNode = struct {
     name_tk: Token,
     return_typ: ?DefinedType,
+    public: bool,
     params: []Param,
     body: []Statement,
 };
@@ -74,6 +77,7 @@ pub const FunctionDeclarationNode = struct {
 //name :: record{field1: type, field2: type}
 pub const RecordDeclarationNode = struct {
     name_tk: Token,
+    public: bool,
     fields: []Param,
 };
 

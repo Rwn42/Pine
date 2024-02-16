@@ -180,8 +180,19 @@ const DeclarationParser = struct {
             .Identifier => blk: {
                 _ = try p.assert_token_is(.DoubleColon);
                 switch (p.token.tag) {
-                    .Record => break :blk try parse_record_decl(p, initial),
-                    .Fn => break :blk try parse_func_decl(p, initial),
+                    .Record => break :blk try parse_record_decl(p, initial, false),
+                    .Fn => break :blk try parse_func_decl(p, initial, false),
+                    .Pub => {
+                        try p.adv();
+                        switch (p.token.tag) {
+                            .Record => break :blk try parse_record_decl(p, initial, true),
+                            .Fn => break :blk try parse_func_decl(p, initial, true),
+                            else => {
+                                std.log.err("Only functions or types can be public {s}", .{p.token});
+                                return ParseError.UnexpectedToken;
+                            },
+                        }
+                    },
                     else => break :blk try parse_const_decl(p, initial),
                 }
             },
@@ -213,10 +224,11 @@ const DeclarationParser = struct {
         return .{ .ForeignDeclaration = node };
     }
 
-    fn parse_record_decl(p: *ParserState, name_tk: Token) !ast.Declaration {
+    fn parse_record_decl(p: *ParserState, name_tk: Token, public: bool) !ast.Declaration {
         const decl = p.new_node(ast.RecordDeclarationNode);
         var fields = std.ArrayList(ast.Param).init(p.node_arena.allocator());
         decl.name_tk = name_tk;
+        decl.public = public;
 
         _ = try p.expect_delimiter(.Lbrace);
 
@@ -244,12 +256,13 @@ const DeclarationParser = struct {
         return .{ .ConstantDeclaration = decl };
     }
 
-    fn parse_func_decl(p: *ParserState, name_tk: Token) !ast.Declaration {
+    fn parse_func_decl(p: *ParserState, name_tk: Token, public: bool) !ast.Declaration {
         var decl = p.new_node(ast.FunctionDeclarationNode);
         var body = std.ArrayList(ast.Statement).init(p.node_arena.allocator());
         var params = std.ArrayList(ast.Param).init(p.node_arena.allocator());
 
         decl.name_tk = name_tk;
+        decl.public = public;
         decl.params = undefined;
         decl.return_typ = null;
 

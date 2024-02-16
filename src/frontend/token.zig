@@ -22,6 +22,7 @@ pub const TokenTag = union(enum) {
     Fn,
     Record,
     Return,
+    Pub,
     True,
     False,
     If,
@@ -68,6 +69,7 @@ pub const TokenTag = union(enum) {
 
     pub const Keywords = std.ComptimeStringMap(TokenTag, .{
         .{ "fn", .Fn },
+        .{ "pub", .Pub },
         .{ "record", .Record },
         .{ "false", .False },
         .{ "true", .True },
