@@ -14,6 +14,7 @@ pub const PinePrimitive = std.ComptimeStringMap(TypeInfo, .{
     .{ "bool", .{ .size = 1, .tag = .PineBool, .child = null } },
     .{ "byte", .{ .size = 1, .tag = .PineByte, .child = null } },
     .{ "void", .{ .size = 0, .tag = .PineVoid, .child = null } },
+    .{ "untyped_int", .{ .size = 8, .tag = .PineUntypedInt, .child = null } },
 });
 
 const Fields = std.StringArrayHashMap(FieldInfo);
@@ -25,7 +26,8 @@ pub const FieldInfo = struct {
 
 pub const FuncInfo = struct {
     params: []TypeInfo,
-    return_type: ?TypeInfo,
+    public: bool,
+    return_type: TypeInfo,
 };
 
 pub const TypeTag = union(enum) {
@@ -40,6 +42,13 @@ pub const TypeTag = union(enum) {
     PineWidePointer,
     PineRecord: *Fields,
     PineArray,
+
+    pub fn is_trivial(t: TypeTag) bool {
+        switch (t) {
+            .PineWidePointer, .PineRecord, .PineArray => false,
+            else => true,
+        }
+    }
 };
 
 pub const TypeInfo = struct {
@@ -48,26 +57,40 @@ pub const TypeInfo = struct {
     child: ?ast.DefinedType,
 };
 
-pub const Types = struct {
+pub const FileTypes = struct {
     const Self = @This();
 
     custom_types: std.StringArrayHashMap(TypeInfo),
     function_types: std.StringArrayHashMap(FuncInfo),
+    public: std.StringHashMap(void),
+
+    imported_types: []*const FileTypes,
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) !Self {
         return .{
             .custom_types = std.StringArrayHashMap(TypeInfo).init(allocator),
             .function_types = std.StringArrayHashMap(FuncInfo).init(allocator),
+            .imported_types = undefined,
+            .public = std.StringHashMap(void).init(allocator),
             .allocator = allocator,
         };
     }
 
-    pub fn from_ast(self: *Self, ast_type: ast.DefinedType) !TypeInfo {
+    pub fn from_ast(self: *const Self, ast_type: ast.DefinedType) !TypeInfo {
         switch (ast_type) {
             .Basic => |typ| {
                 if (PinePrimitive.get(typ.tag.Identifier)) |info| return info;
                 if (self.custom_types.get(typ.tag.Identifier)) |info| return info;
+                for (self.imported_types) |file_types| {
+                    if (file_types.custom_types.get(typ.tag.Identifier)) |info| {
+                        if (!file_types.public.contains(typ.tag.Identifier)) {
+                            std.log.err("Tried to use non public type {s}", .{typ});
+                            return IRError.Undeclared;
+                        }
+                        return info;
+                    }
+                }
                 std.log.err("Undeclared type {s}", .{typ});
                 return IRError.Undeclared;
             },
@@ -113,13 +136,26 @@ pub const Types = struct {
 
             cur_offset += field_ti.size;
         }
-
+        if (decl.public) try self.public.put(decl.name_tk.tag.Identifier, {});
         try self.custom_types.put(decl.name_tk.tag.Identifier, .{ .size = cur_offset, .tag = .{ .PineRecord = map }, .child = null });
     }
 
     pub fn register_function(self: *Self, decl: *ast.FunctionDeclarationNode) IRError!void {
-        _ = self;
-        _ = decl;
+        var function_type = FuncInfo{ .public = decl.public, .params = undefined, .return_type = undefined };
+
+        var param_builder = std.ArrayList(TypeInfo).init(self.allocator);
+        defer param_builder.deinit();
+        for (decl.params) |p| {
+            const param_info = try self.from_ast(p.typ);
+            try param_builder.append(param_info);
+        }
+        function_type.params = try param_builder.toOwnedSlice();
+
+        function_type.return_type = PinePrimitive.get("void").?;
+        if (decl.return_typ) |typ| function_type.return_type = try self.from_ast(typ);
+
+        if (decl.public) try self.public.put(decl.name_tk.tag.Identifier, {});
+        try self.function_types.put(decl.name_tk.tag.Identifier, function_type);
     }
 
     pub fn deinit(self: *Self) void {
@@ -129,7 +165,12 @@ pub const Types = struct {
                 else => {},
             }
         }
+        for (self.function_types.values()) |function_type| {
+            self.allocator.free(function_type.params);
+        }
         self.custom_types.deinit();
         self.function_types.deinit();
+        self.allocator.free(self.imported_types);
+        self.public.deinit();
     }
 };

@@ -2,11 +2,11 @@ const std = @import("std");
 
 const lexing = @import("frontend/lexer.zig");
 const parsing = @import("frontend/parser.zig");
-const typing = @import("backend/typing.zig");
-const ir = @import("backend/ir.zig");
-const linux = @import("backend/linux.zig");
-
 const ast = @import("frontend/ast.zig");
+const typing = @import("backend/typing.zig");
+
+const compile_file = @import("compile.zig").compile_file;
+const open_file = @import("compile.zig").open_file;
 
 pub fn main() void {
     //this allocator will be used for everything for now
@@ -29,104 +29,23 @@ pub fn main() void {
     if (opt.lex) output_lexer(opt.main_file, allocator);
     if (opt.parse) output_parser(opt.main_file, allocator);
 
+    var file_info = std.StringHashMap(typing.FileTypes).init(allocator);
+    defer file_info.deinit();
+
+    defer {
+        var v_iter = file_info.valueIterator();
+        while (v_iter.next()) |types| {
+            types.deinit();
+        }
+    }
+
     //compile the main file here
-    compile_file(opt.main_file, allocator) orelse {
+    compile_file(&file_info, opt.main_file, allocator) orelse {
         std.log.info("exiting...", .{});
         return;
     };
 
     //NOTE: here is where we would call into fasm and ld for final executable
-}
-
-fn compile_file(filepath: []const u8, allocator: std.mem.Allocator) ?void {
-    //open the source file & confirm length
-    const contents = open_file(filepath, allocator) orelse return null;
-
-    var lexer = lexing.Lexer.init(contents, filepath, allocator);
-    defer lexer.deinit();
-    var parser = parsing.ParserState.init(&lexer, allocator) orelse return null;
-    defer parser.deinit();
-
-    //generate ast
-    const ast_tree = parsing.ast_from_file(&parser) catch |err| {
-        allocator.free(contents);
-        switch (err) {
-            error.OutOfMemory => @panic("Out of memory!"),
-            else => return null,
-        }
-    };
-    allocator.free(contents);
-
-    //NOTE: handle imports here we will need some sort of global compilation state i presume
-
-    //load custom types for the file
-    var file_types = typing.Types.init(allocator) catch |err| {
-        switch (err) {
-            error.OutOfMemory => @panic("Out of memory!"),
-            else => return null,
-        }
-    };
-
-    for (ast_tree.records) |record_decl| {
-        file_types.register_record(record_decl) catch |err| {
-            switch (err) {
-                error.OutOfMemory => @panic("Out of memory!"),
-                else => return null,
-            }
-        };
-    }
-
-    for (ast_tree.functions) |function_decl| {
-        file_types.register_function(function_decl) catch |err| {
-            switch (err) {
-                error.OutOfMemory => @panic("Out of memory!"),
-                else => return null,
-            }
-        };
-    }
-
-    //generate the intermediate representation
-    var irgen = ir.IRGenerator.init(ast_tree, file_types, allocator);
-    var ir_data = irgen.generate() catch |err| {
-        switch (err) {
-            error.OutOfMemory => @panic("Out of memory!"),
-            else => return null,
-        }
-    };
-    defer irgen.deinit();
-    defer ir_data.deinit(allocator);
-
-    std.fs.cwd().deleteDir("out") catch {};
-    std.fs.cwd().makeDir("out") catch {};
-
-    const base = std.fs.path.stem(filepath);
-    const name = std.fmt.allocPrint(allocator, "{s}/{s}.fasm", .{ "./out", base }) catch {
-        @panic("Out of memory!");
-    };
-
-    defer allocator.free(name);
-
-    //compile the ir down to fasm file
-    linux.fasm_compile(name, ir_data) catch return null;
-}
-
-const MAX_FILE_BYTES = 1024 * 1024;
-fn open_file(filepath: []const u8, allocator: std.mem.Allocator) ?[]u8 {
-    const file_buffer = std.fs.cwd().readFileAlloc(allocator, filepath, MAX_FILE_BYTES) catch |err| {
-        switch (err) {
-            error.FileTooBig => std.log.err("File {s} is to big try splitting your program into more files.", .{filepath}),
-            else => std.log.err("File {s} was not found.", .{filepath}),
-        }
-        return null;
-    };
-
-    if (file_buffer.len == 0) {
-        std.log.err("File {s} was found but is empty", .{filepath});
-        allocator.free(file_buffer);
-        return null;
-    }
-
-    return file_buffer;
 }
 
 const Options = struct {
