@@ -39,7 +39,7 @@ pub const IRInstruction = union(enum) {
     TempLoad,
     StackAddr: isize,
     StaticStart: usize,
-    ReturnAddr,
+    ReturnAddr: usize,
     Add_I: bool,
     Add_F: bool,
     Mul_I: bool,
@@ -55,6 +55,7 @@ pub const IRInstruction = union(enum) {
 pub const FileIR = struct {
     public: [][]const u8,
     external: [][]const u8,
+    imported: [][]const u8,
     static: []u8,
     instructions: []IRInstruction,
 
@@ -63,6 +64,7 @@ pub const FileIR = struct {
         allocator.free(ir.external);
         allocator.free(ir.static);
         allocator.free(ir.instructions);
+        allocator.free(ir.imported);
     }
 };
 
@@ -190,6 +192,7 @@ const ExecutionState = struct {
         const start_idx = self.program_len();
         try self.program.append(.{ .Function = undefined });
 
+        self.stack_addr += func_type.return_type.size;
         for (func_type.params, func.params) |p_info, ast_p| {
             _ = try self.register_var_decl(ast_p.name_tk, p_info, true);
         }
@@ -211,9 +214,10 @@ const StatementGenerator = struct {
             .ReturnStatement => |expr| {
                 var expr_info = typing.PinePrimitive.get("void").?;
                 if (expr) |real_expr| {
+                    const function_type = s.types.function_types.get(s.current_function_name).?.return_type;
                     expr_info = try ExpressionGenerator.generate_rvalue(s, real_expr);
-                    try s.program.append(.ReturnAddr);
-                    try typing.equivalent(expr_info, s.types.function_types.get(s.current_function_name).?.return_type);
+                    try s.program.append(.{ .ReturnAddr = function_type.size });
+                    try typing.equivalent(expr_info, function_type);
                     try s.generate_mem_op(expr_info, false, real_expr.location());
                 }
                 try s.program.append(.Ret);
@@ -284,16 +288,16 @@ const ExpressionGenerator = struct {
                     }
                 }
 
-                if (std.mem.eql(u8, expr.name_tk.tag.Identifier, "printf")) {
+                if (s.types.find_function(expr.name_tk)) |info| {
+                    try s.program.append(.{ .Call = expr.name_tk.tag.Identifier });
+                    return info.return_type;
+                } else {
                     if (expr.args_list) |args| {
                         try s.program.append(.{ .CCall = .{ .name = expr.name_tk.tag.Identifier, .param_n = args.len } });
                     } else {
                         try s.program.append(.{ .CCall = .{ .name = expr.name_tk.tag.Identifier, .param_n = 0 } });
                     }
                     return typing.PinePrimitive.get("word").?;
-                } else {
-                    try s.program.append(.{ .Call = expr.name_tk.tag.Identifier });
-                    return s.types.function_types.get(expr.name_tk.tag.Identifier).?.return_type;
                 }
             },
             else => {},
@@ -305,9 +309,9 @@ const ExpressionGenerator = struct {
         switch (input_expr) {
             .IdentifierInvokation => |tk| {
                 const info = try s.find_identifier(tk, s.scopes.top_idx());
-                const one: isize = -1;
-                const zero: isize = 0;
-                try s.program.append(.{ .StackAddr = @as(isize, @intCast(info.stack_offset)) * if (info.parameter) one else zero });
+                const onen: isize = -1;
+                const one: isize = 1;
+                try s.program.append(.{ .StackAddr = @as(isize, @intCast(info.stack_offset)) * if (info.parameter) onen else one });
                 return info.type_info;
             },
             .UnaryExpression => |expr| {
@@ -339,6 +343,18 @@ pub fn generate_file_ir(types: typing.FileTypes, file_ast: ast.AST, allocator: s
         }
     }
     ir.external = try extern_buffer.toOwnedSlice();
+
+    var imported_buffer = std.ArrayList([]const u8).init(allocator);
+    defer imported_buffer.deinit();
+    for (types.imported_types) |imported| {
+        for (imported.function_types.values(), imported.function_types.keys()) |func_type, name| {
+            if (func_type.public) {
+                try imported_buffer.append(name);
+            }
+        }
+    }
+
+    ir.imported = try imported_buffer.toOwnedSlice();
 
     var public_buffer = std.ArrayList([]const u8).init(allocator);
     defer public_buffer.deinit();

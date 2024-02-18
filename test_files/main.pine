@@ -1,7 +1,10 @@
+#import "lib.pine"
+
 #foreign "libc" ["printf"]
 
 main :: pub fn() {
-    msg: cstring = "Hello, World!"
-    printf(msg)
+    x: int = add(3, 7)
+    msg: cstring = "age: %d"
+    printf(msg, x)
 }
 

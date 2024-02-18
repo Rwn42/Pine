@@ -80,6 +80,7 @@ pub const FileTypes = struct {
 
     imported_types: []*const FileTypes,
     allocator: std.mem.Allocator,
+    id_arena: std.heap.ArenaAllocator,
 
     pub fn init(allocator: std.mem.Allocator) !Self {
         return .{
@@ -88,6 +89,7 @@ pub const FileTypes = struct {
             .imported_types = undefined,
             .public = std.StringHashMap(void).init(allocator),
             .allocator = allocator,
+            .id_arena = std.heap.ArenaAllocator.init(allocator),
         };
     }
 
@@ -123,6 +125,17 @@ pub const FileTypes = struct {
         }
     }
 
+    pub fn find_function(self: *const Self, name_tk: Token) ?FuncInfo {
+        const name = name_tk.tag.Identifier;
+        if (self.function_types.get(name)) |info| return info;
+        for (self.imported_types) |imported| {
+            for (imported.function_types.values(), imported.function_types.keys()) |v, k| {
+                if (std.mem.eql(u8, name, k) and v.public) return v;
+            }
+        }
+        return null;
+    }
+
     pub fn register_record(self: *Self, decl: *ast.RecordDeclarationNode) IRError!void {
         const map = try self.allocator.create(Fields);
         map.* = Fields.init(self.allocator);
@@ -145,13 +158,15 @@ pub const FileTypes = struct {
                 .offset = cur_offset,
                 .type_info = field_ti,
             };
-
-            try map.put(ast_field.name_tk.tag.Identifier, new_fieldinfo);
+            const key = try self.id_arena.allocator().dupe(u8, ast_field.name_tk.tag.Identifier);
+            try map.put(key, new_fieldinfo);
 
             cur_offset += field_ti.size;
         }
-        if (decl.public) try self.public.put(decl.name_tk.tag.Identifier, {});
-        try self.custom_types.put(decl.name_tk.tag.Identifier, .{ .size = cur_offset, .tag = .{ .PineRecord = map }, .child = null });
+        const key = try self.id_arena.allocator().dupe(u8, decl.name_tk.tag.Identifier);
+
+        if (decl.public) try self.public.put(key, {});
+        try self.custom_types.put(key, .{ .size = cur_offset, .tag = .{ .PineRecord = map }, .child = null });
     }
 
     pub fn register_function(self: *Self, decl: *ast.FunctionDeclarationNode) IRError!void {
@@ -168,8 +183,9 @@ pub const FileTypes = struct {
         function_type.return_type = PinePrimitive.get("void").?;
         if (decl.return_typ) |typ| function_type.return_type = try self.from_ast(typ);
 
-        if (decl.public) try self.public.put(decl.name_tk.tag.Identifier, {});
-        try self.function_types.put(decl.name_tk.tag.Identifier, function_type);
+        const key = try self.id_arena.allocator().dupe(u8, decl.name_tk.tag.Identifier);
+        if (decl.public) try self.public.put(key, {});
+        try self.function_types.put(key, function_type);
     }
 
     pub fn deinit(self: *Self) void {
@@ -186,5 +202,6 @@ pub const FileTypes = struct {
         self.function_types.deinit();
         self.allocator.free(self.imported_types);
         self.public.deinit();
+        self.id_arena.deinit();
     }
 };

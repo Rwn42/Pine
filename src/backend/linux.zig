@@ -22,7 +22,7 @@ pub fn fasm_compile(filename: []const u8, ir: IR) !void {
     //fasm file header
     _ = try w.write("format ELF64\n");
 
-    try fasm_exec_preamble(w, ir.public, ir.external);
+    try fasm_exec_preamble(w, ir.public, ir.external, ir.imported);
     try fasm_exec(w, ir.instructions);
     try fasm_data(w, ir.static);
 }
@@ -39,21 +39,28 @@ fn fasm_data(writer: anytype, static: []u8) !void {
         if (i == static.len - 1) {
             try writer.print("0x{x}\n", .{b});
         } else {
-            try writer.print("0x{x}, ", .{b});
+            if ((i + 1) % 16 == 0) {
+                try writer.print("0x{x}", .{b});
+            } else {
+                try writer.print("0x{x}, ", .{b});
+            }
         }
     }
 }
 
-fn fasm_exec_preamble(writer: anytype, functions: [][]const u8, externals: [][]const u8) !void {
+fn fasm_exec_preamble(writer: anytype, functions: [][]const u8, externals: [][]const u8, imported: [][]const u8) !void {
     _ = try writer.write("section '.text' executable\n");
 
     for (functions) |function| {
         try writer.print("public pine_{s}\n", .{function});
     }
 
-    //TODO: this will break once importing files works
     for (externals) |external| {
         try writer.print("extrn {s}\n", .{external});
+    }
+
+    for (imported) |import| {
+        try writer.print("extrn pine_{s}\n", .{import});
     }
 }
 
@@ -67,26 +74,25 @@ fn fasm_exec(writer: anytype, instructions: []IRInstruction) !void {
                 //try writer.print("enter 0, 0\n", .{data.stack_size});
                 try writer.print("enter 0, 0 \n", .{});
             },
-            .ReturnAddr => {
-                try writer.print("push rdi\n", .{});
+            .ReturnAddr => |size| {
+                try writer.print("mov rax, rbp\n", .{});
+                try writer.print("add rax, {d}\n", .{size + 8});
+                try writer.print("push rax\n", .{});
             },
             .Call => |name| {
+                try writer.print("sub rsp, 8\n", .{});
                 try writer.print("call pine_{s}\n", .{name});
             },
             .CCall => |data| {
                 //we use both rdi and rsi for our internal langugae so save before trampling
-                try writer.print("mov r10, rdi\n", .{});
-                try writer.print("mov r11, rsi\n", .{});
+                try writer.print("mov r10, rsp\n", .{});
                 for (0..data.param_n) |i| {
                     try writer.print("pop {s}\n", .{CcallRegisters[i]});
                 }
-                try writer.print("mov rax, 0\n", .{});
-                try writer.print("mov al, 0\n", .{});
-                try writer.print("enter 0, 0\n", .{});
+                try writer.print("xor rax, rax\n", .{});
+                try writer.print("and rsp, 0xFFFFFFFFFFFFFFF0\n", .{}); //allign stack
                 try writer.print("call {s}\n", .{data.name});
-                try writer.print("leave\n", .{});
-                try writer.print("mov rsi, r11 \n", .{});
-                try writer.print("mov rdi, r10 \n", .{});
+                try writer.print("mov rsp, r10 \n", .{});
             },
             .Ret => {
                 try writer.print("leave\n", .{});
@@ -105,7 +111,8 @@ fn fasm_exec(writer: anytype, instructions: []IRInstruction) !void {
                 if (offset >= 0) {
                     try writer.print("sub rax, {d}\n", .{offset});
                 } else {
-                    try writer.print("add rax, {d}", .{offset * -1});
+                    //plus  skips the return addr pointer
+                    try writer.print("add rax, {d}\n", .{(offset * -1) + 16});
                 }
 
                 try writer.print("push rax\n", .{});
@@ -157,10 +164,10 @@ fn fasm_exec(writer: anytype, instructions: []IRInstruction) !void {
                 try writer.print("pushq [rax]\n", .{});
             },
             .TempStore => {
-                try writer.print("pop rsi\n", .{});
+                try writer.print("pop r10\n", .{});
             },
             .TempLoad => {
-                try writer.print("push rsi\n", .{});
+                try writer.print("push r11\n", .{});
             },
             else => {},
         }

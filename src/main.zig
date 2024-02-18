@@ -41,7 +41,8 @@ pub fn main() void {
     }
 
     //compile the main file here
-    compile_file(&file_info, opt.main_file, allocator) orelse {
+    const dir = std.fs.path.dirname(opt.main_file);
+    compile_file(&file_info, opt.main_file, dir, allocator) orelse {
         std.log.info("exiting...", .{});
         return;
     };

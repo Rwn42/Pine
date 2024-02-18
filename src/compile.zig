@@ -7,7 +7,7 @@ const ir = @import("backend/ir.zig");
 const linux = @import("backend/linux.zig");
 const ast = @import("frontend/ast.zig");
 
-pub fn compile_file(file_info: *std.StringHashMap(typing.FileTypes), filepath: []const u8, allocator: std.mem.Allocator) ?void {
+pub fn compile_file(file_info: *std.StringHashMap(typing.FileTypes), filepath: []const u8, dir: ?[]const u8, allocator: std.mem.Allocator) ?void {
     //open the source file & confirm length
     const contents = open_file(filepath, allocator) orelse return null;
 
@@ -32,16 +32,20 @@ pub fn compile_file(file_info: *std.StringHashMap(typing.FileTypes), filepath: [
     for (ast_tree.imports) |import_token| {
         const file = import_token.tag.String;
         const stem = std.fs.path.stem(file);
+        var search_path: ?[]const u8 = null;
+        if (dir) |dirpath| {
+            search_path = std.fs.path.join(allocator, &.{ dirpath, file }) catch |err| return panic_or_null(err);
+        }
+        defer if (search_path) |path| allocator.free(path);
 
         if (file_info.contains(stem)) {
-            import_types_buffer.append(&file_info.get(stem).?) catch |err| return panic_or_null(err);
+            import_types_buffer.append(file_info.getPtr(stem).?) catch |err| return panic_or_null(err);
         } else {
-            compile_file(file_info, file, allocator) orelse return null;
-            import_types_buffer.append(&file_info.get(stem).?) catch |err| return panic_or_null(err);
+            compile_file(file_info, search_path orelse file, dir, allocator) orelse return null;
+            import_types_buffer.append(file_info.getPtr(stem).?) catch |err| return panic_or_null(err);
         }
     }
     file_types.imported_types = import_types_buffer.toOwnedSlice() catch |err| return panic_or_null(err);
-
     //setup the the local types for the file
     for (ast_tree.records) |record_decl| {
         file_types.register_record(record_decl) catch |err| return panic_or_null(err);
