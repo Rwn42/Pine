@@ -156,7 +156,7 @@ pub const ArrayType = struct {
 
 pub const Statement = union(enum) {
     ExpressionStatement: Expression,
-    ReturnStatement: Expression,
+    ReturnStatement: ?Expression,
     VariableDeclaration: *VariableDeclarationNode,
     VariableAssignment: *VariableAssignmentNode,
     IfStatement: *IfStatementNode,
@@ -166,7 +166,7 @@ pub const Statement = union(enum) {
         switch (self) {
             .ExpressionStatement => |expr| try writer.print("expr statement: {s}", .{expr}),
             .ReturnStatement => |expr| {
-                try writer.print("return: {s}", .{expr});
+                if (expr) |real_expr| try writer.print("return: {s}", .{real_expr});
             },
             .VariableDeclaration => |decl| {
                 try writer.print("variable declaration: {s} ", .{decl.name_tk.tag});
@@ -240,9 +240,10 @@ pub const Expression = union(enum) {
             .LiteralBool, .LiteralFloat, .LiteralString, .LiteralInt, .IdentifierInvokation => |tk| return tk.location,
             .BinaryExpression, .AccessExpression, .RangeExpression => |bin_expr| return bin_expr.op.location,
             .UnaryExpression => |un_expr| return un_expr.op.location,
-            .ArrayInitialization => |a_expr| return self.location(a_expr[0]),
+            .ArrayInitialization => |a_expr| return Expression.location(a_expr[0]),
             .RecordInitialization => |r_expr| return r_expr.name_tk.location,
-            .Cast => |c_expr| return self.location(c_expr.expr),
+            .FunctionInvokation => |c_expr| return c_expr.name_tk.location,
+            .Cast => |c_expr| return Expression.location(c_expr.expr),
         }
     }
 

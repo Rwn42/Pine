@@ -162,7 +162,7 @@ pub const TypeParser = struct {
                 return .{ .Array = new_node };
             },
             else => {
-                std.log.info("Expected a type got {s}", .{initial});
+                std.log.err("Expected a type got {s}", .{initial});
                 return ParseError.UnexpectedToken;
             },
         }
@@ -327,7 +327,12 @@ const StatementParser = struct {
         switch (initial.tag) {
             .Return => {
                 try p.adv();
-                return .{ .ReturnStatement = try ExpressionParser.parse(p, .Newline) };
+                if (p.token.tag != .Newline and p.token.tag != .EOF) {
+                    return .{ .ReturnStatement = try ExpressionParser.parse(p, .Newline) };
+                } else {
+                    try p.adv();
+                }
+                return .{ .ReturnStatement = null };
             },
             .Identifier => {
                 switch (p.peek_token.tag) {

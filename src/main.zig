@@ -4,6 +4,7 @@ const lexing = @import("frontend/lexer.zig");
 const parsing = @import("frontend/parser.zig");
 const ast = @import("frontend/ast.zig");
 const typing = @import("backend/typing.zig");
+const linux = @import("backend/linux.zig");
 
 const compile_file = @import("compile.zig").compile_file;
 const open_file = @import("compile.zig").open_file;
@@ -44,6 +45,8 @@ pub fn main() void {
         std.log.info("exiting...", .{});
         return;
     };
+
+    linux.fasm_runtime() catch return;
 
     //NOTE: here is where we would call into fasm and ld for final executable
 }

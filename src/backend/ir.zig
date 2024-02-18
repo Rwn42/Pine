@@ -5,6 +5,7 @@ const lexing = @import("../frontend/lexer.zig");
 const parsing = @import("../frontend/parser.zig");
 const ast = @import("../frontend/ast.zig");
 const Token = @import("../frontend/token.zig").Token;
+const FileLocation = @import("../frontend/token.zig").FileLocation;
 
 pub const IRError = error{
     Undeclared,
@@ -18,21 +19,31 @@ const FuncData = struct {
     stack_size: usize,
 };
 
+const CCall = struct {
+    name: []const u8,
+    param_n: usize,
+};
+
 pub const IRInstruction = union(enum) {
     Function: FuncData,
-    Push: usize,
+    PushB: u8,
+    PushW: usize,
+    Call: []const u8,
+    CCall: CCall,
     StoreW,
     StoreB,
     LoadW,
     LoadB,
     Ret,
-    StackAddr: usize,
+    TempStore,
+    TempLoad,
+    StackAddr: isize,
     StaticStart: usize,
-    ReturnStart,
-    Add_I,
-    Add_F,
-    Mul_I,
-    Mul_F,
+    ReturnAddr,
+    Add_I: bool,
+    Add_F: bool,
+    Mul_I: bool,
+    Mul_F: bool,
     LT_I,
     LT_F,
     GT_I,
@@ -113,11 +124,58 @@ const ExecutionState = struct {
         try self.scopes.top().put(name_tk.tag.Identifier, .{
             .type_info = typ,
             .stack_offset = self.stack_addr,
-            .param = if (param) true else false,
+            .parameter = if (param) true else false,
         });
         self.stack_addr += typ.size;
 
         return self.scopes.top().get(name_tk.tag.Identifier).?;
+    }
+
+    fn generate_mem_op(self: *Self, type_info: typing.TypeInfo, comptime load: bool, loc: FileLocation) !void {
+        switch (type_info.tag) {
+            .PineVoid => {
+                std.log.err("Cannot have variable/field of type void {s}", .{loc});
+                return IRError.Syntax;
+            },
+            .PineBool, .PineByte, .PineInt, .PineFloat, .PinePtr, .PineUntypedInt, .PineWord => {
+                if (load) {
+                    try self.program.append(if (type_info.size == 2) .LoadB else .LoadW);
+                } else {
+                    try self.program.append(if (type_info.size == 2) .StoreB else .StoreW);
+                }
+            },
+            .PineRecord => |fields| {
+                try self.program.append(.TempStore); //we will need the start addr of the struct many times
+                const record_vals = fields.values();
+
+                if (load) std.mem.reverse(typing.FieldInfo, record_vals);
+                for (record_vals) |field| {
+                    try self.program.append(.TempLoad);
+                    try self.program.append(.{ .PushW = field.offset });
+                    try self.program.append(.{ .Add_I = false });
+                    try self.generate_mem_op(field.type_info, load, loc);
+                }
+            },
+            .PineWidePointer => {
+                try self.program.append(.{ .PushW = 8 });
+                try self.program.append(.{ .Add_I = false });
+                try self.generate_mem_op(typing.PinePrimitive.get("word").?, load, loc);
+                try self.program.append(.TempStore);
+                try self.generate_mem_op(.{ .child = null, .tag = .PinePtr, .size = 8 }, load, loc);
+                try self.program.append(.TempLoad);
+            },
+            .PineArray => {
+                const child_info = try self.types.from_ast(type_info.child.?);
+                const length = type_info.size / child_info.size;
+                try self.program.append(.TempStore); //we will need the start addr of array many times
+                for (0..length) |i| {
+                    try self.program.append(.TempLoad);
+                    try self.program.append(.{ .PushW = i * child_info.size });
+                    try self.program.append(.{ .Add_I = false });
+                    try self.generate_mem_op(child_info, load, loc);
+                }
+            },
+        }
     }
 
     fn generate_function(self: *Self, func: *ast.FunctionDeclarationNode) !void {
@@ -138,60 +196,135 @@ const ExecutionState = struct {
         self.stack_addr = 0; //params are done so reset stack_addr since param stack addressed are "negative"
 
         for (func.body) |stmt| {
-            try self.generate_statement(stmt);
+            try StatementGenerator.generate(self, stmt);
         }
+        try self.program.append(.Ret); //does not help if function returns a value but the user did not
 
         self.program.items[start_idx] = .{ .Function = .{ .name = func.name_tk.tag.Identifier, .stack_size = self.stack_addr } };
         self.stack_addr = 0;
     }
+};
 
-    fn generate_statement(self: *Self, input_stmt: ast.Statement) !void {
+const StatementGenerator = struct {
+    fn generate(s: *ExecutionState, input_stmt: ast.Statement) IRError!void {
         switch (input_stmt) {
             .ReturnStatement => |expr| {
-                try self.program.append(.ReturnStart);
-                try self.program.append(.QuickStore);
-                try self.generate_primary_expression(expr, 0);
-                try self.program.append(.Ret);
+                var expr_info = typing.PinePrimitive.get("void").?;
+                if (expr) |real_expr| {
+                    expr_info = try ExpressionGenerator.generate_rvalue(s, real_expr);
+                    try s.program.append(.ReturnAddr);
+                    try typing.equivalent(expr_info, s.types.function_types.get(s.current_function_name).?.return_type);
+                    try s.generate_mem_op(expr_info, false, real_expr.location());
+                }
+                try s.program.append(.Ret);
             },
-            .VariableAssignment => |assignment| {
-                _ = try self.generate_lvalue(assignment.lhs);
-                try self.program.append(.QuickStore);
-                try self.generate_primary_expression(assignment.rhs, 0);
+            .ExpressionStatement => |expr| {
+                _ = try ExpressionGenerator.generate_rvalue(s, expr);
             },
-            .VariableDeclaration => |stmt| {},
+            .VariableDeclaration => |stmt| {
+                var given_info = try ExpressionGenerator.generate_rvalue(s, stmt.assignment);
+
+                if (stmt.typ) |typ| {
+                    const declared_info = try s.types.from_ast(typ);
+                    try typing.equivalent(given_info, declared_info);
+                    given_info = declared_info;
+                }
+                const info = try s.register_var_decl(stmt.name_tk, given_info, false);
+                try s.program.append(.{ .StackAddr = @intCast(info.stack_offset) });
+                try s.generate_mem_op(given_info, false, stmt.name_tk.location);
+            },
+            .VariableAssignment => |stmt| {
+                const rhs_info = try ExpressionGenerator.generate_rvalue(s, stmt.rhs);
+                const lhs_info = try ExpressionGenerator.generate_lvalue(s, stmt.lhs);
+                try s.generate_mem_op(lhs_info, false, stmt.loc);
+                try typing.equivalent(rhs_info, lhs_info);
+            },
             else => {},
         }
     }
+};
 
-    fn generate_primary_expression(self: *Self, input_expr: ast.Expression, offset: usize) !typing.TypeInfo {
+const ExpressionGenerator = struct {
+    fn generate_rvalue(s: *ExecutionState, input_expr: ast.Expression) IRError!typing.TypeInfo {
         switch (input_expr) {
-            .LiteralInt => |int_tk| {
-                try self.program.append(.{ .Const = @bitCast(int_tk.tag.Integer) });
-                try self.program.append(.QuickLoad);
-                try self.program.append(.{ .Const = offset });
-                try self.program.append(.Add_I);
+            .LiteralInt => |tk| {
+                try s.program.append(.{ .PushW = @bitCast(tk.tag.Integer) });
                 return typing.PinePrimitive.get("untyped_int").?;
             },
-            .IdentifierInvokation => {
-                const info = try generate_lvalue(self, input_expr);
-                try self.program.append(if (info.size == 8) .LoadW else .LoadB);
-                if (!info.type_info.tag.is_trivial()) @panic("not implemented");
-                try self.program.append(.QuickLoad);
-                try self.program.append(.{ .Const = offset });
-                try self.program.append(.Add_I);
+            .LiteralString => |tk| {
+                try s.program.append(.{ .StaticStart = s.static.items.len });
+                try s.static.appendSlice(tk.tag.String);
+                try s.static.append(10);
+                try s.static.append(0);
+                return typing.PinePrimitive.get("cstring").?;
+            },
+            .IdentifierInvokation => |tk| {
+                const info = try generate_lvalue(s, input_expr);
+                try s.generate_mem_op(info, true, tk.location);
                 return info;
             },
+            .BinaryExpression => |expr| {
+                const lhs_info = try generate_rvalue(s, expr.lhs);
+                const rhs_info = try generate_rvalue(s, expr.rhs);
+                try typing.equivalent(rhs_info, lhs_info);
+                switch (expr.op.tag) {
+                    .Plus => try s.program.append(if (lhs_info.tag == .PineFloat) .{ .Add_F = false } else .{ .Add_I = false }),
+                    .Asterisk => try s.program.append(if (lhs_info.tag == .PineFloat) .{ .Mul_F = false } else .{ .Mul_I = false }),
+                    .Dash => try s.program.append(if (lhs_info.tag == .PineFloat) .{ .Add_F = true } else .{ .Add_I = true }),
+                    .SlashForward => try s.program.append(if (lhs_info.tag == .PineFloat) .{ .Mul_F = true } else .{ .Mul_I = true }),
+                    else => {},
+                }
+                return lhs_info;
+            },
+            .FunctionInvokation => |expr| {
+                if (expr.args_list) |args| {
+                    std.mem.reverse(ast.Expression, args);
+                    for (args) |arg| {
+                        _ = try ExpressionGenerator.generate_rvalue(s, arg);
+                    }
+                }
+
+                if (std.mem.eql(u8, expr.name_tk.tag.Identifier, "printf")) {
+                    if (expr.args_list) |args| {
+                        try s.program.append(.{ .CCall = .{ .name = expr.name_tk.tag.Identifier, .param_n = args.len } });
+                    } else {
+                        try s.program.append(.{ .CCall = .{ .name = expr.name_tk.tag.Identifier, .param_n = 0 } });
+                    }
+                    return typing.PinePrimitive.get("word").?;
+                } else {
+                    try s.program.append(.{ .Call = expr.name_tk.tag.Identifier });
+                    return s.types.function_types.get(expr.name_tk.tag.Identifier).?.return_type;
+                }
+            },
+            else => {},
         }
+        return IRError.OutOfMemory;
     }
 
-    fn generate_lvalue(self: *Self, input_expr: ast.Expression) !typing.TypeInfo {
+    fn generate_lvalue(s: *ExecutionState, input_expr: ast.Expression) IRError!typing.TypeInfo {
         switch (input_expr) {
             .IdentifierInvokation => |tk| {
-                const info = try self.find_identifier(tk, self.scopes.top_idx());
-                try self.program.append(.{ .StackAddr = info.stack_offset });
+                const info = try s.find_identifier(tk, s.scopes.top_idx());
+                const one: isize = -1;
+                const zero: isize = 0;
+                try s.program.append(.{ .StackAddr = @as(isize, @intCast(info.stack_offset)) * if (info.parameter) one else zero });
                 return info.type_info;
             },
+            .UnaryExpression => |expr| {
+                if (expr.op.tag != .Hat) {
+                    std.log.err("Cannot use {s} as an lvalue", .{input_expr});
+                    return IRError.Syntax;
+                }
+                const info = try generate_lvalue(s, expr.expr);
+                if (info.tag != .PinePtr) {
+                    std.log.err("attempt to dereference non pointer {s}", .{input_expr});
+                    return IRError.Syntax;
+                }
+                try s.program.append(.LoadW);
+            },
+            else => {},
         }
+        return IRError.OutOfMemory;
     }
 };
 

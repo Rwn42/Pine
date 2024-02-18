@@ -7,13 +7,20 @@ const TokenTag = @import("../frontend/token.zig").TokenTag;
 const FileLocation = @import("../frontend/token.zig").FileLocation;
 const IRError = @import("ir.zig").IRError;
 
+const ByteToken = Token{
+    .location = .{ .row = 0, .col = 0, .filename = "compiler_generated" },
+    .tag = .{ .Identifier = "byte" },
+};
+
 pub const PinePrimitive = std.ComptimeStringMap(TypeInfo, .{
     .{ "int", .{ .size = 8, .tag = .PineInt, .child = null } },
     .{ "float", .{ .size = 8, .tag = .PineFloat, .child = null } },
     .{ "word", .{ .size = 8, .tag = .PineWord, .child = null } },
-    .{ "bool", .{ .size = 1, .tag = .PineBool, .child = null } },
-    .{ "byte", .{ .size = 1, .tag = .PineByte, .child = null } },
+    .{ "bool", .{ .size = 2, .tag = .PineBool, .child = null } },
+    .{ "byte", .{ .size = 2, .tag = .PineByte, .child = null } },
     .{ "void", .{ .size = 0, .tag = .PineVoid, .child = null } },
+    .{ "string", .{ .size = 16, .tag = .PineWidePointer, .child = .{ .Basic = ByteToken } } },
+    .{ "cstring", .{ .size = 8, .tag = .PinePtr, .child = .{ .Basic = ByteToken } } },
     .{ "untyped_int", .{ .size = 8, .tag = .PineUntypedInt, .child = null } },
 });
 
@@ -56,6 +63,13 @@ pub const TypeInfo = struct {
     tag: TypeTag,
     child: ?ast.DefinedType,
 };
+
+//TODO: Implement
+pub fn equivalent(first: TypeInfo, second: TypeInfo) !void {
+    _ = first;
+    _ = second;
+    return;
+}
 
 pub const FileTypes = struct {
     const Self = @This();

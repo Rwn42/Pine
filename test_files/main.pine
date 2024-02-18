@@ -1,0 +1,7 @@
+#foreign "libc" ["printf"]
+
+main :: pub fn() {
+    msg: cstring = "Hello, World!"
+    printf(msg)
+}
+
