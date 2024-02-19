@@ -170,14 +170,14 @@ fn fasm_exec(writer: anytype, instructions: []IRInstruction) !void {
             .Mul_I => |negate| {
                 _ = try writer.write(";;mul/divide \n");
 
-                try writer.print("pop rax\n", .{});
                 try writer.print("pop rbx\n", .{});
+                try writer.print("pop rax\n", .{});
                 if (negate) {
-                    try writer.print("div rbx, rax\n", .{});
+                    try writer.print("div rbx\n", .{});
                 } else {
-                    try writer.print("mul rbx, rax\n", .{});
+                    try writer.print("mul rbx\n", .{});
                 }
-                try writer.print("push rbx\n", .{});
+                try writer.print("push rax\n", .{});
                 _ = try writer.write(";;end mul/divide \n\n");
             },
             .StoreB => {

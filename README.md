@@ -72,7 +72,7 @@ Subject to change.
 ## Current Hello, World!
 Subject to change.
 ```
-//we dont have var args yet so kind of hack the signature to fit your usgae
+//we dont have var args yet so kind of hack the signature to fit your usage
 #foreign printf :: fn(msg: cstring)
 
 main :: pub fn() {
