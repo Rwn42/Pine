@@ -3,8 +3,10 @@
 #foreign "libc" ["printf"]
 
 main :: pub fn() {
-    x: int = add(3, 7)
-    msg: cstring = "age: %d"
-    printf(msg, x)
+    x: int = 12
+    y: int = 13
+    c: int = 123
+    z: int = add(x, y)
+    printf("result: %d", z)
 }
 

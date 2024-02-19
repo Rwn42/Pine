@@ -16,8 +16,8 @@ pub const PinePrimitive = std.ComptimeStringMap(TypeInfo, .{
     .{ "int", .{ .size = 8, .tag = .PineInt, .child = null } },
     .{ "float", .{ .size = 8, .tag = .PineFloat, .child = null } },
     .{ "word", .{ .size = 8, .tag = .PineWord, .child = null } },
-    .{ "bool", .{ .size = 2, .tag = .PineBool, .child = null } },
-    .{ "byte", .{ .size = 2, .tag = .PineByte, .child = null } },
+    .{ "bool", .{ .size = 1, .tag = .PineBool, .child = null } },
+    .{ "byte", .{ .size = 1, .tag = .PineByte, .child = null } },
     .{ "void", .{ .size = 0, .tag = .PineVoid, .child = null } },
     .{ "string", .{ .size = 16, .tag = .PineWidePointer, .child = .{ .Basic = ByteToken } } },
     .{ "cstring", .{ .size = 8, .tag = .PinePtr, .child = .{ .Basic = ByteToken } } },
@@ -35,6 +35,13 @@ pub const FuncInfo = struct {
     params: []TypeInfo,
     public: bool,
     return_type: TypeInfo,
+
+    //should put this in the struct too lazy tho
+    pub fn param_size(f: FuncInfo) usize {
+        var size: usize = 0;
+        for (f.params) |p| size += p.size;
+        return size;
+    }
 };
 
 pub const TypeTag = union(enum) {
@@ -80,7 +87,7 @@ pub const FileTypes = struct {
 
     imported_types: []*const FileTypes,
     allocator: std.mem.Allocator,
-    id_arena: std.heap.ArenaAllocator,
+    arena: std.heap.ArenaAllocator,
 
     pub fn init(allocator: std.mem.Allocator) !Self {
         return .{
@@ -89,7 +96,7 @@ pub const FileTypes = struct {
             .imported_types = undefined,
             .public = std.StringHashMap(void).init(allocator),
             .allocator = allocator,
-            .id_arena = std.heap.ArenaAllocator.init(allocator),
+            .arena = std.heap.ArenaAllocator.init(allocator),
         };
     }
 
@@ -158,12 +165,12 @@ pub const FileTypes = struct {
                 .offset = cur_offset,
                 .type_info = field_ti,
             };
-            const key = try self.id_arena.allocator().dupe(u8, ast_field.name_tk.tag.Identifier);
+            const key = try self.arena.allocator().dupe(u8, ast_field.name_tk.tag.Identifier);
             try map.put(key, new_fieldinfo);
 
             cur_offset += field_ti.size;
         }
-        const key = try self.id_arena.allocator().dupe(u8, decl.name_tk.tag.Identifier);
+        const key = try self.arena.allocator().dupe(u8, decl.name_tk.tag.Identifier);
 
         if (decl.public) try self.public.put(key, {});
         try self.custom_types.put(key, .{ .size = cur_offset, .tag = .{ .PineRecord = map }, .child = null });
@@ -183,7 +190,7 @@ pub const FileTypes = struct {
         function_type.return_type = PinePrimitive.get("void").?;
         if (decl.return_typ) |typ| function_type.return_type = try self.from_ast(typ);
 
-        const key = try self.id_arena.allocator().dupe(u8, decl.name_tk.tag.Identifier);
+        const key = try self.arena.allocator().dupe(u8, decl.name_tk.tag.Identifier);
         if (decl.public) try self.public.put(key, {});
         try self.function_types.put(key, function_type);
     }
@@ -202,6 +209,6 @@ pub const FileTypes = struct {
         self.function_types.deinit();
         self.allocator.free(self.imported_types);
         self.public.deinit();
-        self.id_arena.deinit();
+        self.arena.deinit();
     }
 };

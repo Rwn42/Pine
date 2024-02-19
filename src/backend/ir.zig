@@ -24,12 +24,18 @@ const CCall = struct {
     param_n: usize,
 };
 
+const Call = struct {
+    name: []const u8,
+    param_size: usize,
+};
+
 pub const IRInstruction = union(enum) {
     Function: FuncData,
     PushB: u8,
     PushW: usize,
-    Call: []const u8,
+    Call: Call,
     CCall: CCall,
+    Reserve: usize,
     StoreW,
     StoreB,
     LoadW,
@@ -141,9 +147,9 @@ const ExecutionState = struct {
             },
             .PineBool, .PineByte, .PineInt, .PineFloat, .PinePtr, .PineUntypedInt, .PineWord => {
                 if (load) {
-                    try self.program.append(if (type_info.size == 2) .LoadB else .LoadW);
+                    try self.program.append(if (type_info.size == 1) .LoadB else .LoadW);
                 } else {
-                    try self.program.append(if (type_info.size == 2) .StoreB else .StoreW);
+                    try self.program.append(if (type_info.size == 1) .StoreB else .StoreW);
                 }
             },
             .PineRecord => |fields| {
@@ -192,7 +198,8 @@ const ExecutionState = struct {
         const start_idx = self.program_len();
         try self.program.append(.{ .Function = undefined });
 
-        self.stack_addr += func_type.return_type.size;
+        //since params are "negative address" for us we have to start "above" the first one
+        if (func_type.params.len >= 1) self.stack_addr += func_type.params[0].size;
         for (func_type.params, func.params) |p_info, ast_p| {
             _ = try self.register_var_decl(ast_p.name_tk, p_info, true);
         }
@@ -214,10 +221,10 @@ const StatementGenerator = struct {
             .ReturnStatement => |expr| {
                 var expr_info = typing.PinePrimitive.get("void").?;
                 if (expr) |real_expr| {
-                    const function_type = s.types.function_types.get(s.current_function_name).?.return_type;
+                    const function_type = s.types.function_types.get(s.current_function_name).?;
                     expr_info = try ExpressionGenerator.generate_rvalue(s, real_expr);
-                    try s.program.append(.{ .ReturnAddr = function_type.size });
-                    try typing.equivalent(expr_info, function_type);
+                    try s.program.append(.{ .ReturnAddr = function_type.return_type.size + function_type.param_size() });
+                    try typing.equivalent(expr_info, function_type.return_type);
                     try s.generate_mem_op(expr_info, false, real_expr.location());
                 }
                 try s.program.append(.Ret);
@@ -267,6 +274,16 @@ const ExpressionGenerator = struct {
                 try s.generate_mem_op(info, true, tk.location);
                 return info;
             },
+            .UnaryExpression => |expr| {
+                switch (expr.op.tag) {
+                    .Hat => {
+                        const info = try ExpressionGenerator.generate_lvalue(s, input_expr);
+                        try s.generate_mem_op(info, true, expr.op.location);
+                        return info;
+                    },
+                    else => {},
+                }
+            },
             .BinaryExpression => |expr| {
                 const lhs_info = try generate_rvalue(s, expr.lhs);
                 const rhs_info = try generate_rvalue(s, expr.rhs);
@@ -281,6 +298,9 @@ const ExpressionGenerator = struct {
                 return lhs_info;
             },
             .FunctionInvokation => |expr| {
+                if (s.types.find_function(expr.name_tk)) |info| {
+                    try s.program.append(.{ .Reserve = info.return_type.size });
+                }
                 if (expr.args_list) |args| {
                     std.mem.reverse(ast.Expression, args);
                     for (args) |arg| {
@@ -289,7 +309,7 @@ const ExpressionGenerator = struct {
                 }
 
                 if (s.types.find_function(expr.name_tk)) |info| {
-                    try s.program.append(.{ .Call = expr.name_tk.tag.Identifier });
+                    try s.program.append(.{ .Call = .{ .name = expr.name_tk.tag.Identifier, .param_size = info.param_size() } });
                     return info.return_type;
                 } else {
                     if (expr.args_list) |args| {
@@ -325,6 +345,7 @@ const ExpressionGenerator = struct {
                     return IRError.Syntax;
                 }
                 try s.program.append(.LoadW);
+                return try s.types.from_ast(info.child.?);
             },
             else => {},
         }

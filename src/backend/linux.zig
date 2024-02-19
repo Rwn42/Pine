@@ -70,29 +70,46 @@ fn fasm_exec(writer: anytype, instructions: []IRInstruction) !void {
     for (instructions) |inst| {
         switch (inst) {
             .Function => |data| {
+                _ = try writer.write(";;function decl\n");
                 try writer.print("pine_{s}:\n", .{data.name});
-                //try writer.print("enter 0, 0\n", .{data.stack_size});
-                try writer.print("enter 0, 0 \n", .{});
+                try writer.print("push rbp \n", .{});
+                try writer.print("mov rbp, rsp \n", .{});
+                try writer.print("sub rsp, {d}\n", .{data.stack_size});
+                _ = try writer.write(";; end function decl\n\n");
             },
             .ReturnAddr => |size| {
+                _ = try writer.write(";;generating return address\n");
                 try writer.print("mov rax, rbp\n", .{});
+                //16 puts you over ebp and return address
                 try writer.print("add rax, {d}\n", .{size + 8});
                 try writer.print("push rax\n", .{});
+                _ = try writer.write(";;end generating return address\n\n");
             },
-            .Call => |name| {
-                try writer.print("sub rsp, 8\n", .{});
-                try writer.print("call pine_{s}\n", .{name});
+            .Reserve => |n| {
+                _ = try writer.write(";;reserve for return sapce\n");
+                try writer.print("sub rsp, {d}\n", .{n});
+                _ = try writer.write(";;end reserve for return sapce\n\n");
+            },
+            .Call => |call| {
+                _ = try writer.write(";;pine call\n");
+                try writer.print("call pine_{s}\n", .{call.name});
+                try writer.print("add rsp, {d}\n", .{call.param_size});
+                _ = try writer.write(";;end pine call\n\n");
             },
             .CCall => |data| {
+                _ = try writer.write(";;c call\n");
+
                 //we use both rdi and rsi for our internal langugae so save before trampling
-                try writer.print("mov r10, rsp\n", .{});
+                try writer.print("mov r11, rsp\n", .{});
                 for (0..data.param_n) |i| {
                     try writer.print("pop {s}\n", .{CcallRegisters[i]});
                 }
                 try writer.print("xor rax, rax\n", .{});
                 try writer.print("and rsp, 0xFFFFFFFFFFFFFFF0\n", .{}); //allign stack
                 try writer.print("call {s}\n", .{data.name});
-                try writer.print("mov rsp, r10 \n", .{});
+                try writer.print("mov rsp, r11 \n", .{});
+
+                _ = try writer.write(";;end c call\n\n");
             },
             .Ret => {
                 try writer.print("leave\n", .{});
@@ -105,23 +122,28 @@ fn fasm_exec(writer: anytype, instructions: []IRInstruction) !void {
                 try writer.print("pushq {d}\n", .{val});
             },
             .StackAddr => |offset| {
+                _ = try writer.write(";;generating stack address\n");
+
                 try writer.print("mov rax, rbp\n", .{});
 
                 //params have positive x86 stack offset but negative in the IR
                 if (offset >= 0) {
                     try writer.print("sub rax, {d}\n", .{offset});
                 } else {
-                    //plus  skips the return addr pointer
-                    try writer.print("add rax, {d}\n", .{(offset * -1) + 16});
+                    //plus  skips the return addr pointer and ebp
+                    try writer.print("add rax, {d}\n", .{(offset * -1) + 8});
                 }
 
                 try writer.print("push rax\n", .{});
+                _ = try writer.write(";;end generating stack address\n\n");
             },
             .StaticStart => |offset| {
+                _ = try writer.write(";;generating static address\n");
                 try writer.print("mov rax, static_start\n", .{});
                 try writer.print("inc rax\n", .{});
                 try writer.print("add rax, {d}\n", .{offset});
                 try writer.print("pushq rax\n", .{});
+                _ = try writer.write(";;end generating static address\n");
             },
             .Add_I => |negate| {
                 try writer.print("pop rax\n", .{});
@@ -147,13 +169,11 @@ fn fasm_exec(writer: anytype, instructions: []IRInstruction) !void {
                 try writer.print("pop rax\n", .{});
                 try writer.print("pop rbx\n", .{});
                 try writer.print("mov [rax], bx\n", .{});
-                try writer.print("sub rsp, 2\n", .{});
             },
             .StoreW => {
                 try writer.print("pop rax\n", .{});
                 try writer.print("pop rbx\n", .{});
                 try writer.print("mov QWORD [rax], rbx\n", .{});
-                try writer.print("sub rsp, 8\n", .{});
             },
             .LoadB => {
                 try writer.print("pop ax\n", .{});
@@ -167,7 +187,7 @@ fn fasm_exec(writer: anytype, instructions: []IRInstruction) !void {
                 try writer.print("pop r10\n", .{});
             },
             .TempLoad => {
-                try writer.print("push r11\n", .{});
+                try writer.print("push r10\n", .{});
             },
             else => {},
         }
