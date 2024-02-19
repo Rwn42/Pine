@@ -27,6 +27,19 @@ pub fn compile_file(file_info: *std.StringHashMap(typing.FileTypes), filepath: [
     //set up the types
     var file_types = typing.FileTypes.init(allocator) catch |err| return panic_or_null(err);
 
+    //handle all external function declarations
+    for (ast_tree.foreign) |f_decl| {
+        //construct a dummy function declaration out of foreign
+        var scratch_function_decl = ast.FunctionDeclarationNode{
+            .name_tk = f_decl.name_tk,
+            .body = undefined,
+            .return_typ = f_decl.return_typ,
+            .params = f_decl.params,
+            .public = false,
+        };
+        file_types.register_function(&scratch_function_decl, true) catch |err| return panic_or_null(err);
+    }
+
     //retrieve all the imports this both compiles the file and adds the public types to our registry
     var import_types_buffer = std.ArrayList(*const typing.FileTypes).init(allocator);
     defer import_types_buffer.deinit();
@@ -54,11 +67,11 @@ pub fn compile_file(file_info: *std.StringHashMap(typing.FileTypes), filepath: [
     }
 
     for (ast_tree.functions) |function_decl| {
-        file_types.register_function(function_decl) catch |err| return panic_or_null(err);
+        file_types.register_function(function_decl, false) catch |err| return panic_or_null(err);
     }
 
     //generate the intermediate representation
-    var ir_data = ir.generate_file_ir(file_types, ast_tree, allocator) catch |err| {
+    var ir_data = ir.generate_file_ir(file_types, ast_tree.functions, allocator) catch |err| {
         return panic_or_null(err);
     };
     defer ir_data.deinit(allocator);

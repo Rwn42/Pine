@@ -41,9 +41,9 @@ pub const FuncInfo = struct {
     param_size: usize,
     return_type: TypeInfo,
 
-    //external functions cannot be public
-    public: bool = false,
-    external: bool = false,
+    //external functions cannot be public guaranteed by parser
+    public: bool,
+    external: bool,
 };
 
 pub const TypeTag = union(enum) {
@@ -77,6 +77,7 @@ pub const FileTypes = struct {
 
     custom_types: std.StringArrayHashMap(TypeInfo),
     function_types: std.StringArrayHashMap(FuncInfo),
+    //these are public custom types functions not included
     public: std.StringHashMap(void),
 
     imported_types: []*const FileTypes,
@@ -169,12 +170,13 @@ pub const FileTypes = struct {
         try self.custom_types.put(key, .{ .size = cur_offset, .tag = .{ .PineRecord = map }, .child = null });
     }
 
-    pub fn register_function(self: *Self, decl: *ast.FunctionDeclarationNode) IRError!void {
+    pub fn register_function(self: *Self, decl: *ast.FunctionDeclarationNode, comptime external: bool) IRError!void {
         var function_type = FuncInfo{
             .public = decl.public,
             .params = undefined,
             .return_type = undefined,
             .param_size = 0,
+            .external = if (external) true else false,
         };
 
         var param_builder = std.ArrayList(TypeInfo).init(self.allocator);
@@ -190,7 +192,6 @@ pub const FileTypes = struct {
         if (decl.return_typ) |typ| function_type.return_type = try self.from_ast(typ);
 
         const key = try self.arena.allocator().dupe(u8, decl.name_tk.tag.Identifier);
-        if (decl.public) try self.public.put(key, {});
         try self.function_types.put(key, function_type);
     }
 

@@ -99,6 +99,7 @@ pub const TokenTag = union(enum) {
                 if (TagToStr.get(@tagName(self))) |repr| {
                     try writer.print("{s}", .{repr});
                 } else {
+                    std.log.info("{s}", .{@tagName(self)});
                     @panic("Compiler Error: Token Does Not Have Representation");
                 }
             },
@@ -125,6 +126,7 @@ pub const TagToStr = std.ComptimeStringMap([]const u8, .{
     .{ @tagName(TokenTag.Else), "else" },
     .{ @tagName(TokenTag.Return), "return" },
     .{ @tagName(TokenTag.While), "while" },
+    .{ @tagName(TokenTag.Pub), "pub" },
     .{ @tagName(TokenTag.Plus), "+" },
     .{ @tagName(TokenTag.Dash), "-" },
     .{ @tagName(TokenTag.SlashForward), "/" },

@@ -33,7 +33,7 @@ pub const Declaration = union(enum) {
                 if (decl.return_typ) |t| {
                     try writer.print("    return: {s}\n", .{t});
                 } else {
-                    try writer.print("    infered", .{});
+                    try writer.print("    return void", .{});
                 }
 
                 try writer.print("    body:\n", .{});
@@ -55,11 +55,14 @@ pub const Declaration = union(enum) {
                 try writer.print("importing {s}", .{decl});
             },
             .ForeignDeclaration => |decl| {
-                try writer.print("foreign library {s} importing ...", .{decl.library});
-                for (decl.function_imports) |import| {
-                    try writer.print("{s}, ", .{import});
+                try writer.print("foreign function {s}", .{decl.name_tk});
+                try writer.print("params: ", .{});
+                for (decl.params) |p| try writer.print("{s} ", .{p});
+                if (decl.return_typ) |typ| {
+                    try writer.print("returns: {s}\n", .{typ});
+                } else {
+                    try writer.print("returns void\n", .{});
                 }
-                try writer.print("\n", .{});
             },
         }
     }
@@ -81,10 +84,11 @@ pub const RecordDeclarationNode = struct {
     fields: []Param,
 };
 
-//#foreign "libc" ["printf", "malloc"]
+//#foreign malloc :: fn(n: int) &void
 pub const ForeignDeclarationNode = struct {
-    library: Token,
-    function_imports: []Token,
+    name_tk: Token,
+    params: []Param,
+    return_typ: ?DefinedType,
 };
 
 //name :: value or maybe name :: type one day

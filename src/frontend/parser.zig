@@ -206,22 +206,32 @@ const DeclarationParser = struct {
     }
 
     fn parse_foreign(p: *ParserState) !ast.Declaration {
-        var node = p.new_node(ast.ForeignDeclarationNode);
-        const library = try p.assert_token_is(.{ .String = "" });
-        var imports = std.ArrayList(Token).init(p.node_arena.allocator());
-        defer imports.deinit();
+        var decl = p.new_node(ast.ForeignDeclarationNode);
 
-        _ = try p.assert_token_is(.Lbracket);
-        while (true) {
-            try imports.append(try p.assert_token_is(.{ .String = "" }));
-            if (p.token.tag == .Rbracket) break;
-            _ = try p.assert_token_is(.Comma);
+        decl.name_tk = try p.assert_token_is(.{ .Identifier = "" });
+        decl.return_typ = null;
+
+        _ = try p.assert_token_is(.DoubleColon);
+        _ = try p.assert_token_is(.Fn);
+        _ = try p.assert_token_is(.Lparen);
+
+        var params = std.ArrayList(ast.Param).init(p.node_arena.allocator());
+        if (!TokenTag.eq(p.token.tag, .Rparen)) {
+            var ll_head: ?*ast.ParamList = null;
+            try parse_param_list(p, &ll_head);
+            while (ll_head) |node| {
+                try params.append(.{ .name_tk = node.name_tk, .typ = node.typ });
+                ll_head = node.next;
+            }
         }
-        _ = try p.adv();
+        try p.adv();
+        decl.params = try params.toOwnedSlice();
 
-        node.library = library;
-        node.function_imports = try imports.toOwnedSlice();
-        return .{ .ForeignDeclaration = node };
+        if (!TokenTag.eq(p.token.tag, .Newline)) {
+            decl.return_typ = try TypeParser.parse(p);
+        }
+
+        return .{ .ForeignDeclaration = decl };
     }
 
     fn parse_record_decl(p: *ParserState, name_tk: Token, public: bool) !ast.Declaration {

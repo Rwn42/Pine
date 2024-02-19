@@ -32,11 +32,8 @@ ld my_file.o pine_runtime.o -dynamic-linker /lib64/ld-linux-x86-64.so.2 -lc
 You may have noticed there is a runtime with Pine. all it does is call the user defined main function and exit; instead of renaming the user function to _start. I did it this way because if Pine ever needs a runtime it is already set up.
 
 ## Current TODO
-- [] overhaul foreign declarations
-    - [] know types
-    - [] track library name to auto link
-
 - [] clean up the IR to prepare for adding the rest of the language
+- [] save IR to file
 - [] add the rest of the current parsed language to IR
 
 ## Milestone 1
@@ -75,11 +72,14 @@ Subject to change.
 ## Current Hello, World!
 Subject to change.
 ```
-#foreign "libc" ["printf"]
+//we dont have var args yet so kind of hack the signature to fit your usgae
+#foreign printf :: fn(msg: cstring)
 
-main :: fn() {
+main :: pub fn() {
     printf("Hello, World!")
 }
+
+
 ```
 
 ## Technical Details

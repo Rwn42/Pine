@@ -298,9 +298,15 @@ const ExpressionGenerator = struct {
                 return lhs_info;
             },
             .FunctionInvokation => |expr| {
-                if (s.types.find_function(expr.name_tk)) |info| {
+                const info = s.types.find_function(expr.name_tk) orelse {
+                    std.log.err("Undeclared function {s}", .{expr.name_tk});
+                    return IRError.Undeclared;
+                };
+
+                if (!info.external) {
                     try s.program.append(.{ .Reserve = info.return_type.size });
                 }
+
                 if (expr.args_list) |args| {
                     std.mem.reverse(ast.Expression, args);
                     for (args) |arg| {
@@ -308,17 +314,16 @@ const ExpressionGenerator = struct {
                     }
                 }
 
-                if (s.types.find_function(expr.name_tk)) |info| {
+                if (!info.external) {
                     try s.program.append(.{ .Call = .{ .name = expr.name_tk.tag.Identifier, .param_size = info.param_size } });
-                    return info.return_type;
                 } else {
                     if (expr.args_list) |args| {
                         try s.program.append(.{ .CCall = .{ .name = expr.name_tk.tag.Identifier, .param_n = args.len } });
                     } else {
                         try s.program.append(.{ .CCall = .{ .name = expr.name_tk.tag.Identifier, .param_n = 0 } });
                     }
-                    return typing.PinePrimitive.get("word").?;
                 }
+                return info.return_type;
             },
             else => {},
         }
@@ -353,18 +358,10 @@ const ExpressionGenerator = struct {
     }
 };
 
-pub fn generate_file_ir(types: typing.FileTypes, file_ast: ast.AST, allocator: std.mem.Allocator) IRError!FileIR {
+pub fn generate_file_ir(types: typing.FileTypes, functions: []*ast.FunctionDeclarationNode, allocator: std.mem.Allocator) IRError!FileIR {
     var ir: FileIR = undefined;
 
-    var extern_buffer = std.ArrayList([]const u8).init(allocator);
-    defer extern_buffer.deinit();
-    for (file_ast.foreign) |foreign_decl| {
-        for (foreign_decl.function_imports) |lib_token| {
-            try extern_buffer.append(lib_token.tag.String);
-        }
-    }
-    ir.external = try extern_buffer.toOwnedSlice();
-
+    //all imported functions need to be labeleld with extern also with pine name mangling (pine_{name})
     var imported_buffer = std.ArrayList([]const u8).init(allocator);
     defer imported_buffer.deinit();
     for (types.imported_types) |imported| {
@@ -374,26 +371,37 @@ pub fn generate_file_ir(types: typing.FileTypes, file_ast: ast.AST, allocator: s
             }
         }
     }
-
     ir.imported = try imported_buffer.toOwnedSlice();
 
+    //pupblic functions need to be marked as such for the linker to see
+    //external functions need to be seperate from imported as they do not have name mangling
     var public_buffer = std.ArrayList([]const u8).init(allocator);
+    var extern_buffer = std.ArrayList([]const u8).init(allocator);
     defer public_buffer.deinit();
     var func_type_iter = types.function_types.iterator();
     while (func_type_iter.next()) |f_type| {
         if (f_type.value_ptr.public) {
             try public_buffer.append(f_type.key_ptr.*);
+        } else if (f_type.value_ptr.external) {
+            //std.log.info("external {s}", .{f_type.key_ptr.*});
+            try extern_buffer.append(f_type.key_ptr.*);
         }
     }
-    ir.public = try public_buffer.toOwnedSlice();
 
+    //these have to panic or else and errdefer stmt would be needed after the first owned slice to avoid a leak
+    ir.external = extern_buffer.toOwnedSlice() catch @panic("Out of memory!");
+    ir.public = public_buffer.toOwnedSlice() catch @panic("Out of memory!");
+
+    //here we set up the state to actual begin generating IR
     var execution_state = ExecutionState.init(allocator, &types);
     defer execution_state.deinit();
 
-    for (file_ast.functions) |f_decl| {
+    for (functions) |f_decl| {
         try execution_state.generate_function(f_decl);
     }
 
+    //at this point all executable code has been generated and we can add it to the IR
+    //these have to panic or else and errdefer stmt would be needed after the first owned slice to avoid a leak
     ir.instructions = execution_state.program.toOwnedSlice() catch @panic("Out of memory!");
     ir.static = execution_state.static.toOwnedSlice() catch @panic("Out of memory!");
 

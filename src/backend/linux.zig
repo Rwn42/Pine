@@ -3,6 +3,8 @@ const std = @import("std");
 const IR = @import("ir.zig").FileIR;
 const IRInstruction = @import("ir.zig").IRInstruction;
 
+//TODO: fix load/store for bytes
+
 const FasmSize = enum(u8) {
     QWORD = 8,
     BYTE = 1,
@@ -112,14 +114,22 @@ fn fasm_exec(writer: anytype, instructions: []IRInstruction) !void {
                 _ = try writer.write(";;end c call\n\n");
             },
             .Ret => {
+                _ = try writer.write(";;return\n");
+
                 try writer.print("leave\n", .{});
                 try writer.print("ret\n", .{});
+
+                _ = try writer.write(";;end return\n\n");
             },
             .PushB => |val| {
+                _ = try writer.write(";;push a byte\n");
                 try writer.print("pushw {d}\n", .{val});
+                _ = try writer.write(";;end push a byte\n\n");
             },
             .PushW => |val| {
+                _ = try writer.write(";;push a word\n");
                 try writer.print("pushq {d}\n", .{val});
+                _ = try writer.write(";;end push a word\n\n");
             },
             .StackAddr => |offset| {
                 _ = try writer.write(";;generating stack address\n");
@@ -146,6 +156,7 @@ fn fasm_exec(writer: anytype, instructions: []IRInstruction) !void {
                 _ = try writer.write(";;end generating static address\n");
             },
             .Add_I => |negate| {
+                _ = try writer.write(";;add/sub \n");
                 try writer.print("pop rax\n", .{});
                 try writer.print("pop rbx\n", .{});
                 if (negate) {
@@ -154,8 +165,11 @@ fn fasm_exec(writer: anytype, instructions: []IRInstruction) !void {
                     try writer.print("add rbx, rax\n", .{});
                 }
                 try writer.print("push rbx\n", .{});
+                _ = try writer.write(";;end add/sub \n\n");
             },
             .Mul_I => |negate| {
+                _ = try writer.write(";;mul/divide \n");
+
                 try writer.print("pop rax\n", .{});
                 try writer.print("pop rbx\n", .{});
                 if (negate) {
@@ -164,30 +178,43 @@ fn fasm_exec(writer: anytype, instructions: []IRInstruction) !void {
                     try writer.print("mul rbx, rax\n", .{});
                 }
                 try writer.print("push rbx\n", .{});
+                _ = try writer.write(";;end mul/divide \n\n");
             },
             .StoreB => {
+                _ = try writer.write(";;store byte\n");
                 try writer.print("pop rax\n", .{});
                 try writer.print("pop rbx\n", .{});
                 try writer.print("mov [rax], bx\n", .{});
+                _ = try writer.write(";;end store byte\n\n");
             },
             .StoreW => {
+                _ = try writer.write(";;store word\n");
                 try writer.print("pop rax\n", .{});
                 try writer.print("pop rbx\n", .{});
                 try writer.print("mov QWORD [rax], rbx\n", .{});
+                _ = try writer.write(";;end store word\n\n");
             },
             .LoadB => {
+                _ = try writer.write(";;load byte\n");
                 try writer.print("pop ax\n", .{});
                 try writer.print("push WORD [rax]\n", .{});
+                _ = try writer.write(";;end load byte\n\n");
             },
             .LoadW => {
+                _ = try writer.write(";;load word\n");
                 try writer.print("pop rax\n", .{});
                 try writer.print("pushq [rax]\n", .{});
+                _ = try writer.write(";;end load word\n\n");
             },
             .TempStore => {
+                _ = try writer.write(";;temp store\n");
                 try writer.print("pop r10\n", .{});
+                _ = try writer.write(";;end temp store\n\n");
             },
             .TempLoad => {
+                _ = try writer.write(";;temp load\n");
                 try writer.print("push r10\n", .{});
+                _ = try writer.write(";;end temp load\n\n");
             },
             else => {},
         }

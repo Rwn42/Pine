@@ -1,10 +1,10 @@
 #import "lib.pine"
-#import "dir/lib2.pine"
 
-#foreign "libc" ["printf"]
+//we dont have var args yet so kind of hack the signature to fit your usgae
+#foreign printf :: fn(msg: cstring, value: int)
 
 main :: pub fn() {
-    y: int = sub(5, 3)
+    y: int = add(0, 2)
     printf("I hope i got 2, %d", y)
 }
 
