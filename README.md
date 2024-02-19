@@ -1,6 +1,36 @@
 # Pine
 Pine, fomerly called Osmium, is an at *attempt* at a simple C like language written in Zig. The lexer and parser are custom, expression parsing based on Writing an Interpreter in Go book. Many thanks to Tsoding for all the useful tidbits about stack based code and fasm.
 
+One could argue Pine is low-level in that it does nothing for you. However, it also does not provide enough functionality to let the programmer do everything either.
+
+## Installation (Linux)
+[fasm](https://flatassembler.net/)  and [zig](https://ziglang.org) are required so install them first.
+
+to install the compiler and run a program:
+```shell
+git clone https://github.com/Rwn42/Pine
+cd Pine
+zig build -p pine
+
+./pine/bin/Pine my_file.pine
+
+cd out
+
+fasm my_file.fasm
+fasm pine_runtime.fasm
+
+ld my_file.o pine_runtime.o
+```
+
+If using anything from libc use the following ld command:
+
+```shell
+#your exact dynimic linker path may vary to find it try runing ldd on some executables
+ld my_file.o pine_runtime.o -dynamic-linker /lib64/ld-linux-x86-64.so.2 -lc
+```
+
+You may have noticed there is a runtime with Pine. all it does is call the user defined main function and exit; instead of renaming the user function to _start. I did it this way because if Pine ever needs a runtime it is already set up.
+
 ## Current TODO
 - [] overhaul foreign declarations
     - [] know types
@@ -22,14 +52,16 @@ I want to fully support variables, control flow, records, functions, arrays, rec
 for this milestone I aim to have the rest of the standard C like language features as well as an interpreter.
 Subject to change.
 - [] namespacing *ugh*
+- [] some way of error/null handling (anything but exceptions)
 - [] enums & unions
 - [] interpret the IR
 
 ## Milestone 3
-**Final Extras**
+**Final Extras unlikely to be completed**
 Subject to change.
 - [] type system overhaul (one of: generics, compile time code execution, macros)
 - [] support for basic items without libc (printing, malloc ect)
+- [] better compiler errors
 - [] windows compilation support
 
 ## Milestone 4

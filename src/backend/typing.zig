@@ -7,6 +7,11 @@ const TokenTag = @import("../frontend/token.zig").TokenTag;
 const FileLocation = @import("../frontend/token.zig").FileLocation;
 const IRError = @import("ir.zig").IRError;
 
+//TODO: comptime arr length expression
+//TODO: type checking
+//TODO: out of order record declarations
+
+//nessecary so string and cstring can be primitives
 const ByteToken = Token{
     .location = .{ .row = 0, .col = 0, .filename = "compiler_generated" },
     .tag = .{ .Identifier = "byte" },
@@ -33,15 +38,12 @@ pub const FieldInfo = struct {
 
 pub const FuncInfo = struct {
     params: []TypeInfo,
-    public: bool,
+    param_size: usize,
     return_type: TypeInfo,
 
-    //should put this in the struct too lazy tho
-    pub fn param_size(f: FuncInfo) usize {
-        var size: usize = 0;
-        for (f.params) |p| size += p.size;
-        return size;
-    }
+    //external functions cannot be public
+    public: bool = false,
+    external: bool = false,
 };
 
 pub const TypeTag = union(enum) {
@@ -56,13 +58,6 @@ pub const TypeTag = union(enum) {
     PineWidePointer,
     PineRecord: *Fields,
     PineArray,
-
-    pub fn is_trivial(t: TypeTag) bool {
-        switch (t) {
-            .PineWidePointer, .PineRecord, .PineArray => false,
-            else => true,
-        }
-    }
 };
 
 pub const TypeInfo = struct {
@@ -71,7 +66,6 @@ pub const TypeInfo = struct {
     child: ?ast.DefinedType,
 };
 
-//TODO: Implement
 pub fn equivalent(first: TypeInfo, second: TypeInfo) !void {
     _ = first;
     _ = second;
@@ -121,7 +115,6 @@ pub const FileTypes = struct {
                 return .{ .size = 8, .tag = .PinePtr, .child = p.pointing_to };
             },
             .Array => |arr| {
-                //TODO: comptime arr length expression
                 const length = @as(usize, @intCast(arr.length.LiteralInt.tag.Integer));
                 const child = try self.from_ast(arr.element_typ);
                 return .{ .size = length * child.size, .tag = .PineArray, .child = arr.element_typ };
@@ -177,12 +170,18 @@ pub const FileTypes = struct {
     }
 
     pub fn register_function(self: *Self, decl: *ast.FunctionDeclarationNode) IRError!void {
-        var function_type = FuncInfo{ .public = decl.public, .params = undefined, .return_type = undefined };
+        var function_type = FuncInfo{
+            .public = decl.public,
+            .params = undefined,
+            .return_type = undefined,
+            .param_size = 0,
+        };
 
         var param_builder = std.ArrayList(TypeInfo).init(self.allocator);
         defer param_builder.deinit();
         for (decl.params) |p| {
             const param_info = try self.from_ast(p.typ);
+            function_type.param_size += param_info.size;
             try param_builder.append(param_info);
         }
         function_type.params = try param_builder.toOwnedSlice();

@@ -1,10 +1,10 @@
 #import "lib.pine"
+#import "dir/lib2.pine"
 
 #foreign "libc" ["printf"]
 
 main :: pub fn() {
-    msg: cstring = "acat: %d"
-
-    printf(msg + 1, 17)
+    y: int = sub(5, 3)
+    printf("I hope i got 2, %d", y)
 }
 

@@ -47,7 +47,10 @@ pub fn main() void {
         return;
     };
 
-    linux.fasm_runtime() catch return;
+    linux.fasm_runtime() catch {
+        std.log.err("Unable to write to pine_runtime.fasm", .{});
+        return;
+    };
 
     //NOTE: here is where we would call into fasm and ld for final executable
 }

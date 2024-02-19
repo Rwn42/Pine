@@ -223,7 +223,7 @@ const StatementGenerator = struct {
                 if (expr) |real_expr| {
                     const function_type = s.types.function_types.get(s.current_function_name).?;
                     expr_info = try ExpressionGenerator.generate_rvalue(s, real_expr);
-                    try s.program.append(.{ .ReturnAddr = function_type.return_type.size + function_type.param_size() });
+                    try s.program.append(.{ .ReturnAddr = function_type.return_type.size + function_type.param_size });
                     try typing.equivalent(expr_info, function_type.return_type);
                     try s.generate_mem_op(expr_info, false, real_expr.location());
                 }
@@ -309,7 +309,7 @@ const ExpressionGenerator = struct {
                 }
 
                 if (s.types.find_function(expr.name_tk)) |info| {
-                    try s.program.append(.{ .Call = .{ .name = expr.name_tk.tag.Identifier, .param_size = info.param_size() } });
+                    try s.program.append(.{ .Call = .{ .name = expr.name_tk.tag.Identifier, .param_size = info.param_size } });
                     return info.return_type;
                 } else {
                     if (expr.args_list) |args| {
