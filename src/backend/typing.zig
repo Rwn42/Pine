@@ -10,6 +10,9 @@ const IRError = @import("ir.zig").IRError;
 //TODO: comptime arr length expression
 //TODO: type checking
 //TODO: out of order record declarations
+//TODO: parser goes out of scope so any defined types that are not trivially copiable are undefined
+//NOTE:     could try and save ast related to types to a seperate arena might not be a trivial change tho
+//NOTE:     possibly just change new node function to rely on some parser state which controls active arena
 
 //nessecary so string and cstring can be primitives
 const ByteToken = Token{
@@ -41,7 +44,7 @@ pub const FuncInfo = struct {
     param_size: usize,
     return_type: TypeInfo,
 
-    //external functions cannot be public guaranteed by parser
+    //external functions cannot be public; guaranteed by parser
     public: bool,
     external: bool,
 };
@@ -98,8 +101,8 @@ pub const FileTypes = struct {
     pub fn from_ast(self: *const Self, ast_type: ast.DefinedType) !TypeInfo {
         switch (ast_type) {
             .Basic => |typ| {
-                if (PinePrimitive.get(typ.tag.Identifier)) |info| return info;
                 if (self.custom_types.get(typ.tag.Identifier)) |info| return info;
+                if (PinePrimitive.get(typ.tag.Identifier)) |info| return info;
                 for (self.imported_types) |file_types| {
                     if (file_types.custom_types.get(typ.tag.Identifier)) |info| {
                         if (!file_types.public.contains(typ.tag.Identifier)) {

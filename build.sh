@@ -2,7 +2,7 @@ set -xe
 
 zig build
 
-./zig-out/bin/Pine test_files/main.pine 
+./zig-out/bin/Pine test_files/main.pine
 
 cd ./out
 

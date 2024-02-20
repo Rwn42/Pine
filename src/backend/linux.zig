@@ -4,6 +4,7 @@ const IR = @import("ir.zig").FileIR;
 const IRInstruction = @import("ir.zig").IRInstruction;
 
 //TODO: fix load/store for bytes
+//TODO: Fix division
 
 const FasmSize = enum(u8) {
     QWORD = 8,
@@ -79,13 +80,13 @@ fn fasm_exec(writer: anytype, instructions: []IRInstruction) !void {
                 try writer.print("sub rsp, {d}\n", .{data.stack_size});
                 _ = try writer.write(";; end function decl\n\n");
             },
-            .ReturnAddr => |size| {
-                _ = try writer.write(";;generating return address\n");
+            .ParamAddr => |offset| {
+                _ = try writer.write(";;generating param address\n");
                 try writer.print("mov rax, rbp\n", .{});
-                //16 puts you over ebp and return address
-                try writer.print("add rax, {d}\n", .{size + 8});
+                //add 8 to skip return address placed on stack by cpu
+                try writer.print("add rax, {d}\n", .{offset + 8});
                 try writer.print("push rax\n", .{});
-                _ = try writer.write(";;end generating return address\n\n");
+                _ = try writer.write(";;end generating param address\n\n");
             },
             .Reserve => |n| {
                 _ = try writer.write(";;reserve for return sapce\n");
@@ -102,14 +103,14 @@ fn fasm_exec(writer: anytype, instructions: []IRInstruction) !void {
                 _ = try writer.write(";;c call\n");
 
                 //we use both rdi and rsi for our internal langugae so save before trampling
-                try writer.print("mov r11, rsp\n", .{});
+                try writer.print("mov r12, rsp\n", .{});
                 for (0..data.param_n) |i| {
                     try writer.print("pop {s}\n", .{CcallRegisters[i]});
                 }
                 try writer.print("xor rax, rax\n", .{});
                 try writer.print("and rsp, 0xFFFFFFFFFFFFFFF0\n", .{}); //allign stack
                 try writer.print("call {s}\n", .{data.name});
-                try writer.print("mov rsp, r11 \n", .{});
+                try writer.print("mov rsp, r12 \n", .{});
 
                 _ = try writer.write(";;end c call\n\n");
             },
@@ -123,7 +124,9 @@ fn fasm_exec(writer: anytype, instructions: []IRInstruction) !void {
             },
             .PushB => |val| {
                 _ = try writer.write(";;push a byte\n");
-                try writer.print("pushw {d}\n", .{val});
+                try writer.print("xor rbx, rbx\n", .{});
+                try writer.print("mov bl, {d}\n", .{val});
+                try writer.print("push rbx\n", .{});
                 _ = try writer.write(";;end push a byte\n\n");
             },
             .PushW => |val| {
@@ -133,25 +136,15 @@ fn fasm_exec(writer: anytype, instructions: []IRInstruction) !void {
             },
             .StackAddr => |offset| {
                 _ = try writer.write(";;generating stack address\n");
-
                 try writer.print("mov rax, rbp\n", .{});
-
-                //params have positive x86 stack offset but negative in the IR
-                if (offset >= 0) {
-                    try writer.print("sub rax, {d}\n", .{offset});
-                } else {
-                    //plus  skips the return addr pointer and ebp
-                    try writer.print("add rax, {d}\n", .{(offset * -1) + 8});
-                }
-
+                try writer.print("sub rax, {d}\n", .{offset});
                 try writer.print("push rax\n", .{});
                 _ = try writer.write(";;end generating stack address\n\n");
             },
-            .StaticStart => |offset| {
+            .StaticAddr => |offset| {
                 _ = try writer.write(";;generating static address\n");
                 try writer.print("mov rax, static_start\n", .{});
-                try writer.print("inc rax\n", .{});
-                try writer.print("add rax, {d}\n", .{offset});
+                try writer.print("add rax, {d}\n", .{1 + offset});
                 try writer.print("pushq rax\n", .{});
                 _ = try writer.write(";;end generating static address\n");
             },
@@ -180,11 +173,58 @@ fn fasm_exec(writer: anytype, instructions: []IRInstruction) !void {
                 try writer.print("push rax\n", .{});
                 _ = try writer.write(";;end mul/divide \n\n");
             },
+            //NOTE: all comparison operators referenced from Porth by tsoding
+            .LT_I => {
+                try writer.print("mov rcx, 0\n", .{});
+                try writer.print("mov rdx, 1\n", .{});
+                try writer.print("pop rbx\n", .{});
+                try writer.print("pop rax\n", .{});
+                try writer.print("cmp rax, rbx\n", .{});
+                try writer.print("cmovl rcx, rdx\n", .{});
+                try writer.print("push rcx\n", .{});
+            },
+            .GT_I => {
+                try writer.print("mov rcx, 0\n", .{});
+                try writer.print("mov rdx, 1\n", .{});
+                try writer.print("pop rbx\n", .{});
+                try writer.print("pop rax\n", .{});
+                try writer.print("cmp rax, rbx\n", .{});
+                try writer.print("cmovg rcx, rdx\n", .{});
+                try writer.print("push rcx\n", .{});
+            },
+            .Eq => {
+                try writer.print("mov rcx, 0\n", .{});
+                try writer.print("mov rdx, 1\n", .{});
+                try writer.print("pop rbx\n", .{});
+                try writer.print("pop rax\n", .{});
+                try writer.print("cmp rax, rbx\n", .{});
+                try writer.print("cmove rcx, rdx\n", .{});
+                try writer.print("push rcx\n", .{});
+            },
+            .Not => {
+                try writer.print("pop rax\n", .{});
+                try writer.print("xor rax, 1\n", .{});
+                try writer.print("push rax\n", .{});
+            },
+            //NOTE: end of referenced material
+
+            .Jz => |label| {
+                try writer.print("pop rax\n", .{});
+                try writer.print("mov rbx, 0\n", .{});
+                try writer.print("cmp rax, rbx\n", .{});
+                try writer.print("jz {s}\n", .{label});
+            },
+            .Jmp => |label| {
+                try writer.print("jmp {s}\n", .{label});
+            },
+            .Label => |label| {
+                try writer.print("{s}:\n", .{label});
+            },
             .StoreB => {
                 _ = try writer.write(";;store byte\n");
                 try writer.print("pop rax\n", .{});
                 try writer.print("pop rbx\n", .{});
-                try writer.print("mov [rax], bx\n", .{});
+                try writer.print("mov [rax], bl\n", .{});
                 _ = try writer.write(";;end store byte\n\n");
             },
             .StoreW => {
@@ -196,8 +236,10 @@ fn fasm_exec(writer: anytype, instructions: []IRInstruction) !void {
             },
             .LoadB => {
                 _ = try writer.write(";;load byte\n");
-                try writer.print("pop ax\n", .{});
-                try writer.print("push WORD [rax]\n", .{});
+                try writer.print("pop rax\n", .{});
+                try writer.print("xor rbx, rbx\n", .{});
+                try writer.print("mov bl, [rax]\n", .{});
+                try writer.print("push rbx\n", .{});
                 _ = try writer.write(";;end load byte\n\n");
             },
             .LoadW => {
@@ -208,12 +250,12 @@ fn fasm_exec(writer: anytype, instructions: []IRInstruction) !void {
             },
             .TempStore => {
                 _ = try writer.write(";;temp store\n");
-                try writer.print("pop r10\n", .{});
+                try writer.print("pop r12\n", .{});
                 _ = try writer.write(";;end temp store\n\n");
             },
             .TempLoad => {
                 _ = try writer.write(";;temp load\n");
-                try writer.print("push r10\n", .{});
+                try writer.print("push r12\n", .{});
                 _ = try writer.write(";;end temp load\n\n");
             },
             else => {},

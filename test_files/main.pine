@@ -1,14 +1,13 @@
-//#import "lib.pine"
-
+#import "lib.pine"
 
 #foreign printf :: fn(msg: cstring, value: int)
 
-add :: fn(b: int) int {
-    return b * 3
-}
-
 main :: pub fn() {
-    y: int = add(7)
-    printf("I hope i got 21, %d", y)
+    y: int = 1
+    while y <= 10 {
+        printf("lol  %d", y)
+        y = y + 1
+    }
+    y = y + 1
 }
 

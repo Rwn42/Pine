@@ -1,3 +1,4 @@
-add :: pub fn(x: int, y: int) int {
-    return x + y
+
+add :: pub fn(z: int) int {
+    return z + 3
 }

@@ -31,10 +31,6 @@ ld my_file.o pine_runtime.o -dynamic-linker /lib64/ld-linux-x86-64.so.2 -lc
 
 You may have noticed there is a runtime with Pine. all it does is call the user defined main function and exit; instead of renaming the user function to _start. I did it this way because if Pine ever needs a runtime it is already set up.
 
-## Current TODO
-- [] clean up the IR to prepare for adding the rest of the language
-- [] save IR to file
-- [] add the rest of the current parsed language to IR
 
 ## Milestone 1
 **Native "Hello, World!" application**
@@ -49,6 +45,11 @@ I want to fully support variables, control flow, records, functions, arrays, rec
 for this milestone I aim to have the rest of the standard C like language features as well as an interpreter.
 Subject to change.
 - [] namespacing *ugh*
+- [] static variables (this is important large arrays do not play nicely with the model for this language)
+- [] better typechecking
+- [] else and else if
+- [] floats
+- [] for loops
 - [] some way of error/null handling (anything but exceptions)
 - [] enums & unions
 - [] interpret the IR

@@ -26,6 +26,7 @@ pub fn compile_file(file_info: *std.StringHashMap(typing.FileTypes), filepath: [
 
     //set up the types
     var file_types = typing.FileTypes.init(allocator) catch |err| return panic_or_null(err);
+    errdefer file_types.deinit();
 
     //handle all external function declarations
     for (ast_tree.foreign) |f_decl| {

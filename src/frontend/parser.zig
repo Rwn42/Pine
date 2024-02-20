@@ -7,6 +7,8 @@ const Token = @import("token.zig").Token;
 const TokenTag = @import("token.zig").TokenTag;
 const FileLocation = @import("token.zig").FileLocation;
 
+//TODO error with back to back { {
+
 const ParseError = error{
     OutOfMemory,
     UnexpectedToken,

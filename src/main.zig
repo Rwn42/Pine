@@ -9,6 +9,8 @@ const linux = @import("backend/linux.zig");
 const compile_file = @import("compile.zig").compile_file;
 const open_file = @import("compile.zig").open_file;
 
+//TODO: fix memory leak on crash
+
 pub fn main() void {
     //this allocator will be used for everything for now
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
