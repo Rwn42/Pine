@@ -72,12 +72,11 @@ const CcallRegisters = [_][]const u8{ "rdi", "rsi", "rdx", "rcx", "r8", "r9" };
 fn fasm_exec(writer: anytype, instructions: []IRInstruction) !void {
     for (instructions) |inst| {
         switch (inst) {
-            .Function => |data| {
+            .Function => |name| {
                 _ = try writer.write(";;function decl\n");
-                try writer.print("pine_{s}:\n", .{data.name});
+                try writer.print("pine_{s}:\n", .{name});
                 try writer.print("push rbp \n", .{});
                 try writer.print("mov rbp, rsp \n", .{});
-                try writer.print("sub rsp, {d}\n", .{data.stack_size});
                 _ = try writer.write(";; end function decl\n\n");
             },
             .ParamAddr => |offset| {
@@ -102,15 +101,20 @@ fn fasm_exec(writer: anytype, instructions: []IRInstruction) !void {
             .CCall => |data| {
                 _ = try writer.write(";;c call\n");
 
-                //we use both rdi and rsi for our internal langugae so save before trampling
+                //TODO: push r12 to stack to restore after usage
+                //TODO: floating point numbas
                 try writer.print("mov r12, rsp\n", .{});
-                for (0..data.param_n) |i| {
+                for (0..data.info.params.len) |i| {
                     try writer.print("pop {s}\n", .{CcallRegisters[i]});
                 }
                 try writer.print("xor rax, rax\n", .{});
                 try writer.print("and rsp, 0xFFFFFFFFFFFFFFF0\n", .{}); //allign stack
                 try writer.print("call {s}\n", .{data.name});
                 try writer.print("mov rsp, r12 \n", .{});
+                //TODO: if greater rax is a pointer to the object so deal with that
+                if (data.info.return_type.size <= 8 and data.info.return_type.size != 0) {
+                    try writer.print("push rax\n", .{});
+                }
 
                 _ = try writer.write(";;end c call\n\n");
             },
@@ -247,16 +251,6 @@ fn fasm_exec(writer: anytype, instructions: []IRInstruction) !void {
                 try writer.print("pop rax\n", .{});
                 try writer.print("pushq [rax]\n", .{});
                 _ = try writer.write(";;end load word\n\n");
-            },
-            .TempStore => {
-                _ = try writer.write(";;temp store\n");
-                try writer.print("pop r12\n", .{});
-                _ = try writer.write(";;end temp store\n\n");
-            },
-            .TempLoad => {
-                _ = try writer.write(";;temp load\n");
-                try writer.print("push r12\n", .{});
-                _ = try writer.write(";;end temp load\n\n");
             },
             else => {},
         }

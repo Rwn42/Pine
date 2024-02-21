@@ -23,7 +23,7 @@ const ByteToken = Token{
 pub const PinePrimitive = std.ComptimeStringMap(TypeInfo, .{
     .{ "int", .{ .size = 8, .tag = .PineInt, .child = null } },
     .{ "float", .{ .size = 8, .tag = .PineFloat, .child = null } },
-    .{ "word", .{ .size = 8, .tag = .PineWord, .child = null } },
+    .{ "usize", .{ .size = 8, .tag = .PineWord, .child = null } },
     .{ "bool", .{ .size = 1, .tag = .PineBool, .child = null } },
     .{ "byte", .{ .size = 1, .tag = .PineByte, .child = null } },
     .{ "void", .{ .size = 0, .tag = .PineVoid, .child = null } },

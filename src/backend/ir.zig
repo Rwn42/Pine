@@ -14,14 +14,9 @@ pub const IRError = error{
     Syntax,
 };
 
-const FuncData = struct {
-    name: []const u8,
-    stack_size: usize,
-};
-
 const CCall = struct {
     name: []const u8,
-    param_n: usize,
+    info: typing.FuncInfo,
 };
 
 const Call = struct {
@@ -30,7 +25,7 @@ const Call = struct {
 };
 
 pub const IRInstruction = union(enum) {
-    Function: FuncData,
+    Function: []const u8,
     PushB: u8,
     PushW: usize,
     Call: Call,
@@ -41,8 +36,6 @@ pub const IRInstruction = union(enum) {
     LoadW,
     LoadB,
     Ret,
-    TempStore, //tempory storage area; having this reduces the need for drop, swap, rotate type instructions
-    TempLoad, //load from temp storage area
     StackAddr: usize, //pointer to the start of the variable section of the stack
     ParamAddr: usize, //pointer to start of param section (could be accomplshed with var addr but its clunky)
     StaticAddr: usize, //pointer to start of static memory
@@ -246,33 +239,42 @@ const ExecutionState = struct {
                 }
             },
             .PineRecord => |fields| {
-                try self.program.append(.TempStore); //we will need the start addr of the struct many times
+                //store offset for future reference
+                try self.program.append(.{ .StackAddr = 0 });
+                try self.program.append(.StoreW);
                 const record_vals = fields.values();
 
                 //if loading from memory load onto stack in reverse order so it could be stored again
                 //TODO: check if this reverse persists across calls concerning the same record
                 if (load) std.mem.reverse(typing.FieldInfo, record_vals);
                 for (record_vals) |field| {
-                    try self.program.append(.TempLoad);
+                    try self.program.append(.{ .StackAddr = 0 });
+                    try self.program.append(.LoadW);
                     try self.program.append(.{ .PushW = field.offset });
                     try self.program.append(.{ .Add_I = false });
                     try self.generate_mem_op(field.type_info, load, loc);
                 }
             },
             .PineWidePointer => {
+                try self.program.append(.{ .StackAddr = 0 });
+                try self.program.append(.StoreW);
+                try self.program.append(.{ .StackAddr = 0 });
+                try self.program.append(.LoadW);
+                try self.generate_mem_op(typing.PinePrimitive.get("word").?, load, loc);
+                try self.program.append(.{ .StackAddr = 0 });
+                try self.program.append(.LoadW);
                 try self.program.append(.{ .PushW = 8 });
                 try self.program.append(.{ .Add_I = false });
-                try self.generate_mem_op(typing.PinePrimitive.get("word").?, load, loc);
-                try self.program.append(.TempStore);
                 try self.generate_mem_op(.{ .child = null, .tag = .PinePtr, .size = 8 }, load, loc);
-                try self.program.append(.TempLoad);
             },
             .PineArray => {
                 const child_info = try self.types.from_ast(type_info.child.?);
                 const length = type_info.size / child_info.size;
-                try self.program.append(.TempStore); //we will need the start addr of array many times
+                try self.program.append(.{ .StackAddr = 0 });
+                try self.program.append(.StoreW);
                 for (0..length) |i| {
-                    try self.program.append(.TempLoad);
+                    try self.program.append(.{ .StackAddr = 0 });
+                    try self.program.append(.LoadW);
                     try self.program.append(.{ .PushW = i * child_info.size });
                     try self.program.append(.{ .Add_I = false });
                     try self.generate_mem_op(child_info, load, loc);
@@ -297,8 +299,9 @@ const ExecutionState = struct {
         defer self.scopes.pop();
 
         const func_type = self.types.function_types.get(func.name_tk.tag.Identifier).?;
+        try self.program.append(.{ .Function = func.name_tk.tag.Identifier });
         const start_idx = self.program_len();
-        try self.program.append(.{ .Function = undefined }); //undefined bc we dont yet know the stack size
+        try self.program.append(.{ .Reserve = undefined }); //we dont know size yet so leave undefined
 
         //since params are "negative address" for us we have to start "above" the first one
         if (func_type.params.len >= 1) self.stack_addr += func_type.params[0].size;
@@ -313,14 +316,15 @@ const ExecutionState = struct {
             const p_info = type_iter.next().?;
             _ = try self.register_var_decl(ast_p.name_tk, p_info, true);
         }
-        self.stack_addr = 0; //params are done so reset stack_addr since param stack addressed are "negative"
+        //NOTE: first 8 bytes reserved for temporary information like struct offset ect
+        self.stack_addr = 8; //params are done so reset stack_addr since param stack addressed are "negative"
 
         for (func.body) |stmt| {
             try StatementGenerator.generate(self, stmt);
         }
         try self.program.append(.Ret); //does not help if function returns a value but the user did not
 
-        self.program.items[start_idx] = .{ .Function = .{ .name = func.name_tk.tag.Identifier, .stack_size = self.stack_addr } };
+        self.program.items[start_idx] = .{ .Reserve = self.stack_addr };
         self.stack_addr = 0;
     }
 };
@@ -408,6 +412,7 @@ const ExpressionGenerator = struct {
             },
             .LiteralBool => |tk| {
                 try s.program.append(.{ .PushB = if (tk.tag == .True) 1 else 0 });
+                return typing.PinePrimitive.get("bool").?;
             },
             .IdentifierInvokation => |tk| {
                 const info = try generate_lvalue(s, input_expr);
@@ -515,11 +520,7 @@ const ExpressionGenerator = struct {
                 if (!info.external) {
                     try s.program.append(.{ .Call = .{ .name = expr.name_tk.tag.Identifier, .param_size = info.param_size } });
                 } else {
-                    if (expr.args_list) |args| {
-                        try s.program.append(.{ .CCall = .{ .name = expr.name_tk.tag.Identifier, .param_n = args.len } });
-                    } else {
-                        try s.program.append(.{ .CCall = .{ .name = expr.name_tk.tag.Identifier, .param_n = 0 } });
-                    }
+                    try s.program.append(.{ .CCall = .{ .name = expr.name_tk.tag.Identifier, .info = info } });
                 }
                 return info.return_type;
             },

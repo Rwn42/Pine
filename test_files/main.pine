@@ -1,13 +1,13 @@
 #import "lib.pine"
 
-#foreign printf :: fn(msg: cstring, value: int)
+#foreign printf :: fn(msg: cstring, val: int)
+#foreign malloc :: fn(size: usize) &int
+#foreign free   :: fn(ptr: &int)
 
 main :: pub fn() {
-    y: int = 1
-    while y <= 10 {
-        printf("lol  %d", y)
-        y = y + 1
-    }
-    y = y + 1
+    b: &byte = malloc(2)
+    ^(b) = 97
+    ^(b + 1) = 0
+    printf("dynamic memory allocation ftw, %s", b)
+    free(b)
 }
-
