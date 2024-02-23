@@ -81,7 +81,7 @@ pub const ParserState = struct {
 
     // a.b  -- expects delimeter (.) skips past it so token is now (b)
     fn expect_delimiter(self: *Self, expected: TokenTag) !void {
-        if (!(TokenTag.eq(self.peek_token.tag, expected))) {
+        if (!(TokenTag.eq(self.peek_token.tag, expected)) and !TokenTag.eq(self.peek_token.tag, .Newline)) {
             std.log.err("Unexpected token {s} expected {s}", .{ self.peek_token, expected });
             try self.adv();
             try self.adv();
@@ -93,11 +93,13 @@ pub const ParserState = struct {
 
     //a -- expects (a) and returns it
     fn assert_token_is(self: *Self, expected: TokenTag) !Token {
+        while (TokenTag.eq(self.token.tag, .Newline)) try self.adv();
         if (!(TokenTag.eq(self.token.tag, expected))) {
             std.log.err("Unexpected token {s} expected {s}", .{ self.token, expected });
             try self.adv();
             return ParseError.UnexpectedToken;
         }
+
         const v = self.token;
         try self.adv();
         return v;
@@ -327,6 +329,8 @@ const DeclarationParser = struct {
 
         if (TokenTag.eq(p.token.tag, .Rparen) or TokenTag.eq(p.token.tag, .Rbrace)) return;
         _ = try p.assert_token_is(.Comma);
+        while (TokenTag.eq(p.token.tag, .Newline)) try p.adv();
+
         if (TokenTag.eq(p.token.tag, .Rparen) or TokenTag.eq(p.token.tag, .Rbrace)) return; //for trailing commmas
 
         return parse_param_list(p, &param.next);

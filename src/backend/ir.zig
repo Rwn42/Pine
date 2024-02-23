@@ -260,7 +260,7 @@ const ExecutionState = struct {
                 try self.program.append(.StoreW);
                 try self.program.append(.{ .StackAddr = 0 });
                 try self.program.append(.LoadW);
-                try self.generate_mem_op(typing.PinePrimitive.get("word").?, load, loc);
+                try self.generate_mem_op(typing.PinePrimitive.get("usize").?, load, loc);
                 try self.program.append(.{ .StackAddr = 0 });
                 try self.program.append(.LoadW);
                 try self.program.append(.{ .PushW = 8 });
@@ -524,6 +524,80 @@ const ExpressionGenerator = struct {
                 }
                 return info.return_type;
             },
+            .ArrayInitialization => |ordered_list| {
+                var length: usize = 0;
+
+                var element_type: ?typing.TypeInfo = null;
+                var elem_iter = std.mem.reverseIterator(ordered_list);
+                while (elem_iter.next()) |exp| {
+                    length += 1;
+                    if (element_type) |typ| {
+                        const next_type = try generate_rvalue(s, exp);
+                        try typing.equivalent(next_type, typ);
+                    } else {
+                        element_type = try generate_rvalue(s, exp);
+                    }
+                }
+                return .{
+                    .tag = .PineArray,
+                    .size = length * element_type.?.size,
+                    .child = null, //TODO: this is bad
+                };
+            },
+            .RecordInitialization => |list| {
+                const typ = s.types.custom_types.get(list.name_tk.tag.Identifier) orelse {
+                    std.log.err("Record type {s} is undefined {s}", .{ list.name_tk.tag.Identifier, list.name_tk.location });
+                    return IRError.Undeclared;
+                };
+
+                //this is awfully slow
+                std.mem.reverse([]const u8, typ.tag.PineRecord.keys());
+                outer: for (typ.tag.PineRecord.keys()) |field_name| {
+                    for (list.fields) |ast_field| {
+                        if (std.mem.eql(u8, ast_field.field.tag.Identifier, field_name)) {
+                            //could do some type checking here
+                            _ = try ExpressionGenerator.generate_rvalue(s, ast_field.expr);
+                            continue :outer;
+                        }
+                    }
+                    std.log.err("Did not initialize field {s} {s}", .{ field_name, list.name_tk.location });
+                    return IRError.Syntax;
+                }
+                std.mem.reverse([]const u8, typ.tag.PineRecord.keys());
+                return typ;
+            },
+            .AccessExpression => |expr| {
+                switch (expr.rhs) {
+                    .RangeExpression => |r_expr| {
+                        const input_info = try ExpressionGenerator.generate_lvalue(s, expr.lhs);
+                        if (input_info.tag != .PineArray and input_info.tag != .PineWidePointer) {
+                            std.log.err("Cannot slice a type that is not an array or slice {s}", .{r_expr.op.location});
+                            return IRError.Syntax;
+                        }
+                        //correct order is length then ptr so comptime swap these boys
+                        const lvalue_inst = s.program.pop();
+                        //a..b => b - a on the stack which is the length
+                        _ = try ExpressionGenerator.generate_rvalue(s, r_expr.rhs);
+                        _ = try ExpressionGenerator.generate_rvalue(s, r_expr.lhs);
+                        try s.program.append(.{ .Add_I = true });
+                        //add the lower bound to the start of the array ptr
+                        try s.program.append(lvalue_inst);
+                        _ = try ExpressionGenerator.generate_rvalue(s, r_expr.lhs);
+                        try s.program.append(.{ .Add_I = false });
+
+                        if (input_info.tag == .PineArray) {
+                            return s.types.from_ast(input_info.child.?);
+                        } else {
+                            @panic("not implemented");
+                        }
+                    },
+                    else => {},
+                }
+                const info = try ExpressionGenerator.generate_lvalue(s, input_expr);
+                try s.generate_mem_op(info, true, expr.op.location);
+                return info;
+            },
+
             else => {},
         }
         unreachable;
@@ -536,6 +610,12 @@ const ExpressionGenerator = struct {
                 try s.push_variable_address(info);
                 return info.type_info;
             },
+            .AccessExpression => |expr| {
+                const initial_info = try ExpressionGenerator.generate_lvalue(s, expr.lhs);
+                const type_info = try ExpressionGenerator.generate_access(s, expr.rhs, initial_info);
+                try s.program.append(.{ .Add_I = false });
+                return type_info;
+            },
             .UnaryExpression => |expr| {
                 if (expr.op.tag != .Hat) {
                     std.log.err("Cannot use {s} as an lvalue", .{input_expr});
@@ -547,6 +627,91 @@ const ExpressionGenerator = struct {
             else => {},
         }
         unreachable;
+    }
+
+    fn generate_access(ir: *ExecutionState, expr: ast.Expression, input_info: typing.TypeInfo) !typing.TypeInfo {
+        var child: typing.TypeInfo = undefined;
+        if (input_info.child) |ast_child| {
+            child = try ir.types.from_ast(ast_child);
+        }
+        switch (expr) {
+            .IdentifierInvokation => |field_tk| {
+                switch (input_info.tag) {
+                    .PineArray => {
+                        _ = try ExpressionGenerator.generate_rvalue(ir, expr);
+                        try ir.program.append(.{ .PushW = child.size });
+                        try ir.program.append(.{ .Mul_I = false });
+                        return child;
+                    },
+                    .PineRecord => {
+                        if (input_info.tag.PineRecord.get(field_tk.tag.Identifier)) |field_info| {
+                            try ir.program.append(.{ .PushW = field_info.offset });
+                            return field_info.type_info;
+                        }
+                        std.log.err("No field {s} in record", .{field_tk});
+                        return IRError.Syntax;
+                    },
+                    .PineWidePointer => {
+                        if (input_info.tag.PineRecord.get(field_tk.tag.Identifier)) |field_info| {
+                            try ir.program.append(.{ .PushW = field_info.offset });
+                            return field_info.type_info;
+                        }
+                        try ir.program.append(.{ .PushW = 8 });
+                        try ir.program.append(.{ .Add_I = false });
+                        try ir.program.append(.LoadW); //load data ptr
+                        _ = try ExpressionGenerator.generate_rvalue(ir, expr);
+                        try ir.program.append(.{ .PushW = child.size });
+                        try ir.program.append(.{ .Mul_I = false });
+                        return child;
+                    },
+                    else => {
+                        std.log.err("Cannot access variable (. operator) if it is not a record or array {s}", .{field_tk});
+                        return IRError.Syntax;
+                    },
+                }
+            },
+            .AccessExpression => |a_expr| {
+                switch (input_info.tag) {
+                    .PineRecord, .PineWidePointer => {
+                        const rhs_input_info = try generate_access(ir, a_expr.lhs, input_info);
+                        const rhs_info = try generate_access(ir, a_expr.rhs, rhs_input_info);
+                        try ir.program.append(.{ .Add_I = false });
+                        return rhs_info;
+                    },
+                    .PineArray => {
+                        _ = try generate_access(ir, a_expr.lhs, input_info);
+                        const rhs_info = try generate_access(ir, a_expr.rhs, child);
+                        try ir.program.append(.{ .Add_I = false });
+                        return rhs_info;
+                    },
+                    else => {
+                        std.log.err("Cannot access variable (. operator) if it is not a record or array {s}", .{expr});
+                        return IRError.Syntax;
+                    },
+                }
+            },
+            //some sort of array access expression
+            else => {
+                if (input_info.tag != .PineArray and input_info.tag != .PineWidePointer) {
+                    std.log.err("Tried to access a non indexible value {s}", .{expr});
+                    return IRError.Syntax;
+                }
+                if (input_info.tag == .PineWidePointer) {
+                    try ir.program.append(.{ .PushW = 8 });
+                    try ir.program.append(.{ .Add_I = false });
+                    try ir.program.append(.LoadW);
+                    _ = try ExpressionGenerator.generate_rvalue(ir, expr);
+                    try ir.program.append(.{ .PushW = child.size });
+                    try ir.program.append(.{ .Mul_I = false });
+                    return child;
+                } else {
+                    _ = try ExpressionGenerator.generate_rvalue(ir, expr);
+                    try ir.program.append(.{ .PushW = (try ir.types.from_ast(input_info.child.?)).size });
+                    try ir.program.append(.{ .Mul_I = false });
+                    return child;
+                }
+            },
+        }
     }
 };
 
