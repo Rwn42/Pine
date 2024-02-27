@@ -3,6 +3,9 @@ Pine, fomerly called Osmium, is an at *attempt* at a simple C like language writ
 
 One could argue Pine is low-level in that it does nothing for you. However, it also does not provide enough functionality to let the programmer do everything either.
 
+## Important Note About Project Status
+I am currently working on rewriting milestone 1 code in a different language. The explicitness in Zig is becoming overwhelming I am looking into moving to C, Odin or Go.
+
 ## Installation (Linux)
 [fasm](https://flatassembler.net/)  and [zig](https://ziglang.org) are required so install them first.
 
@@ -37,8 +40,8 @@ You may have noticed there is a runtime with Pine. all it does is call the user 
 I want to fully support variables, control flow, records, functions, arrays, records and slices for this version
 - [x] port lexer from old version
 - [x] port parser from old version
-- [] intermediate representation
-- [] native compilation
+- [x] intermediate representation
+- [x] native compilation
 
 ## Milestone 2
 **Similiar in convience to C, excluding stdlib** 
