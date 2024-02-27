@@ -1,6 +1,6 @@
 set -xe
 
-zig build -freference-trace
+zig build 
 
 ./zig-out/bin/Pine test_files/main.pine 
 

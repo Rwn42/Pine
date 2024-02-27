@@ -1,28 +1,13 @@
-#import "lib.pine"
-
 #foreign printf :: fn(msg: cstring, val: int)
 #foreign malloc :: fn(size: usize) &int
 #foreign free   :: fn(ptr: &int)
 
-S :: record {
-    b: bool,
-}
 
-Vec2 :: record {
-    x: int,
-    s: S,
-    y: int,
-}
 
 main :: pub fn() {
-    cat: [10]byte = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
-    printf("testing simple index expecting 3: %d", cat.(1 + 1))
-
-    r := Vec2{x: 10, s: S{b: false}, y: 12}
-    printf("testing field access expecting 0: %d", r.s.b)
-
-    s: []byte = cat.(2..4)
-    printf("testing simple index expecting 2: %d", s.(0))
-
-    fix_error := 10
+    cat: [3]int = {1, 2, 3}
+    //s: []int = cat.(2..3)
+    //b: int = s.(0)
+    //printf("expecting 3: %d", b)
+    x: bool = false
 }

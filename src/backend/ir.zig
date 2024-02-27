@@ -110,6 +110,7 @@ pub fn generate_file_ir(types: typing.FileTypes, functions: []*ast.FunctionDecla
     ir.static = execution_state.static.toOwnedSlice() catch @panic("Out of memory!");
     ir.label_arena = execution_state.label_arena;
 
+    scratch_interpret(ir);
     return ir;
 }
 
@@ -583,6 +584,9 @@ const ExpressionGenerator = struct {
                         //add the lower bound to the start of the array ptr
                         try s.program.append(lvalue_inst);
                         _ = try ExpressionGenerator.generate_rvalue(s, r_expr.lhs);
+                        const child = try s.types.from_ast(input_info.child.?);
+                        try s.program.append(.{ .PushW = child.size });
+                        try s.program.append(.{ .Mul_I = false });
                         try s.program.append(.{ .Add_I = false });
 
                         if (input_info.tag == .PineArray) {
@@ -656,8 +660,8 @@ const ExpressionGenerator = struct {
                             try ir.program.append(.{ .PushW = field_info.offset });
                             return field_info.type_info;
                         }
-                        try ir.program.append(.{ .PushW = 8 });
-                        try ir.program.append(.{ .Add_I = false });
+                        // try ir.program.append(.{ .PushW = 8 });
+                        // try ir.program.append(.{ .Add_I = false });
                         try ir.program.append(.LoadW); //load data ptr
                         _ = try ExpressionGenerator.generate_rvalue(ir, expr);
                         try ir.program.append(.{ .PushW = child.size });
@@ -697,8 +701,8 @@ const ExpressionGenerator = struct {
                     return IRError.Syntax;
                 }
                 if (input_info.tag == .PineWidePointer) {
-                    try ir.program.append(.{ .PushW = 8 });
-                    try ir.program.append(.{ .Add_I = false });
+                    // try ir.program.append(.{ .StackAddr = 8 });
+                    // try ir.program.append(.{ .Add_I = false });
                     try ir.program.append(.LoadW);
                     _ = try ExpressionGenerator.generate_rvalue(ir, expr);
                     try ir.program.append(.{ .PushW = child.size });
@@ -714,6 +718,12 @@ const ExpressionGenerator = struct {
         }
     }
 };
+
+fn print(ir: FileIR) void {
+    for (ir.instructions) |inst| {
+        std.debug.print("{any}\n", .{inst});
+    }
+}
 
 //general purpose stack
 pub fn Stack(comptime T: type, comptime limit: usize, comptime msg: []const u8) type {
@@ -770,4 +780,83 @@ pub fn Stack(comptime T: type, comptime limit: usize, comptime msg: []const u8) 
             return self.buffer[idx];
         }
     };
+}
+
+fn scratch_interpret(ir: FileIR) void {
+    var mem = [1]u64{0} ** 1064;
+    var sp: usize = 0;
+    for (ir.instructions) |inst| {
+        switch (inst) {
+            .PushW => |v| {
+                mem[sp] = v;
+                sp += 1;
+            },
+            .PushB => |v| {
+                mem[sp] = v;
+                sp += 1;
+            },
+            .StackAddr => |v| {
+                mem[sp] = v;
+                sp += 1;
+            },
+            .Add_I => |sub| {
+                const a = mem[sp - 1];
+                const b = mem[sp - 2];
+                sp -= 2;
+                if (sub) {
+                    mem[sp] = b - a;
+                } else {
+                    mem[sp] = a + b;
+                }
+                sp += 1;
+            },
+            .Mul_I => |sub| {
+                const a = mem[sp - 1];
+                const b = mem[sp - 2];
+                sp -= 2;
+                if (sub) {
+                    @panic("no divide pls");
+                } else {
+                    mem[sp] = a * b;
+                }
+                sp += 1;
+            },
+            .Reserve => |v| {
+                sp += v;
+            },
+            .StoreW => {
+                const addr = mem[sp - 1];
+                const v = mem[sp - 2];
+                sp -= 2;
+                mem[addr] = v;
+            },
+            .StoreB => {
+                const addr = mem[sp - 1];
+                const v = mem[sp - 2];
+                sp -= 2;
+                mem[addr] = v;
+            },
+            .LoadW => {
+                const addr = mem[sp - 1];
+                sp -= 1;
+                mem[sp] = mem[addr];
+                sp += 1;
+            },
+            .LoadB => {
+                const addr = mem[sp - 1];
+                sp -= 1;
+                mem[sp] = mem[addr];
+                sp += 1;
+            },
+            .StaticAddr => {},
+            .CCall => |info| {
+                sp -= info.info.params.len;
+            },
+            else => {},
+        }
+    }
+    for (0..63) |i| {
+        if (i % 8 == 0) std.debug.print("\n", .{});
+        std.debug.print("{d} ", .{mem[i]});
+    }
 }

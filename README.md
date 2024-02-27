@@ -79,9 +79,8 @@ Subject to change.
 main :: pub fn() {
     printf("Hello, World!")
 }
-
-
 ```
+
 
 ## Technical Details
 If anyone stumbles upon this project and is curious, or if I forget what I did the details are below.
@@ -98,9 +97,8 @@ Pine's calling convention is not the same as C's, but it can be if importing a C
 Pine reserves space for return value, then places params. the caller must clean up the params so only return value
 is left. Everything is passed by value, arrays can be passed by pointer to the start or by passing a slice.
 
-Pine reserves the first N bytes of any stack frame for local variables the rest is used for temporary expressions
-r10 is used as tempory storage when loading or storing complex data.
-r11 is used to store the stack pointer if the stack needs to be temporarily alligned for a cdecl call
+Pine reserves the first N + 8 bytes of any stack frame for local variables the rest is used for temporary expressions. The reason for the added 8 bytes is the first 8 bytes of the stack are used as a pseudo register
+for the IR. Eventually this can be optimized out and all load/store to that address can be replaced with a register.
 the standard C calling convention registers are considered volatile as they may be used at any point to call into C.
 
 ## Language Reference
